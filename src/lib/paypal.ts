@@ -90,9 +90,9 @@ export interface RemindInvoiceOptions {
 }
 
 export interface RecordPaymentInput {
-  method?: 'PAYPAL' | 'BANK_TRANSFER' | 'CASH' | 'CHECK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'EXTERNAL' | 'OTHER';
-  paymentDate: string; // YYYY-MM-DD
-  amount: string;      // e.g. "1200.00"
+  method?: 'PAYPAL' | 'BANK_TRANSFER' | 'CASH' | 'CHECK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'EXTERNAL' | 'OTHER' | string;
+  paymentDate?: string; // YYYY-MM-DD
+  amount: string;       // e.g. "1200.00"
   currency?: string;
   note?: string;
   paymentId?: string;
@@ -331,46 +331,59 @@ export class SandboxPayPalProvider implements PaymentProvider {
 
   async remindInvoice(invoiceId: string, options?: RemindInvoiceOptions): Promise<any> {
     const token = await this.getToken();
+    const remindBody: Record<string, any> = {
+      send_to_recipient: options?.sendToRecipient ?? true,
+      send_to_invoicer: options?.sendToInvoicer ?? false,
+    };
+    if (options?.subject) remindBody.subject = options.subject;
+    if (options?.note) remindBody.note = options.note;
+
     const response = await fetch(`${this.baseUrl}/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/remind`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        send_to_invoicer: options?.sendToInvoicer ?? true,
-        send_to_recipient: options?.sendToRecipient ?? true,
-        subject: options?.subject,
-        note: options?.note,
-      }),
+      body: JSON.stringify(remindBody),
     });
 
+    const responseText = await response.text();
+    console.log(`[remindInvoice] HTTP Status: ${response.status}`);
+    console.log(`[remindInvoice] Response Body: ${responseText || '(empty)'}`);
+
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Failed to send PayPal invoice reminder (${response.status}): ${errText}`);
+      throw new Error(`Failed to send PayPal invoice reminder (${response.status}): ${responseText}`);
     }
 
-    if (response.status === 204) {
-      return { success: true, invoiceId };
+    if (!responseText || response.status === 204) {
+      return { success: true, status: response.status, invoiceId };
     }
 
-    return await response.json();
+    try {
+      return JSON.parse(responseText);
+    } catch {
+      return { success: true, status: response.status, body: responseText };
+    }
   }
 
   async recordPayment(invoiceId: string, input: RecordPaymentInput): Promise<any> {
     const token = await this.getToken();
     const numVal = parseFloat(input.amount);
     const amountStr = isNaN(numVal) ? input.amount : numVal.toFixed(2);
+    const paymentDate = input.paymentDate || new Date().toISOString().split('T')[0];
 
-    const body: any = {
-      method: input.method || 'EXTERNAL',
-      payment_date: input.paymentDate,
+    const body: Record<string, any> = {
+      method: input.method || 'OTHER',
+      payment_date: paymentDate,
       amount: {
         currency_code: input.currency || 'USD',
         value: amountStr,
       },
-      note: input.note,
     };
+
+    if (input.note) {
+      body.note = input.note;
+    }
 
     if (input.paymentId) {
       body.payment_id = input.paymentId;
@@ -385,12 +398,23 @@ export class SandboxPayPalProvider implements PaymentProvider {
       body: JSON.stringify(body),
     });
 
+    const responseText = await response.text();
+    console.log(`[recordPayment] HTTP Status: ${response.status}`);
+    console.log(`[recordPayment] Response Body: ${responseText || '(empty)'}`);
+
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Failed to record PayPal payment (${response.status}): ${errText}`);
+      throw new Error(`Failed to record PayPal payment (${response.status}): ${responseText}`);
     }
 
-    return await response.json();
+    if (!responseText) {
+      return { success: true, status: response.status, invoiceId };
+    }
+
+    try {
+      return JSON.parse(responseText);
+    } catch {
+      return { success: true, status: response.status, body: responseText };
+    }
   }
 }
 
