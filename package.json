@@ -9,9 +9,11 @@
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
     "test:paypal": "tsx scripts/test-paypal.ts",
-    "test:risk": "tsx scripts/test-risk.ts"
+    "test:risk": "tsx scripts/test-risk.ts",
+    "test:llm": "tsx scripts/test-llm.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.32.0",
     "better-sqlite3": "^13.0.3",
     "next": "16.4.3",
     "react": "19.3.0",
