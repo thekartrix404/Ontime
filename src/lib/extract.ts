@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { generateJson } from './llm';
+import { generateJson, LlmSource } from './llm';
 
 export const LineItemSchema = z.object({
   description: z.string().min(1, 'Item description is required'),
@@ -22,6 +22,7 @@ export interface ExtractionSuccess {
   success: true;
   data: ExtractedInvoice;
   missingFields: string[];
+  source: LlmSource;
 }
 
 export interface ExtractionFailure {
@@ -29,6 +30,7 @@ export interface ExtractionFailure {
   error: string;
   missingFields: string[];
   data?: ExtractedInvoice | null;
+  source: LlmSource;
 }
 
 export type ExtractionResult = ExtractionSuccess | ExtractionFailure;
@@ -137,8 +139,8 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
   // Try initial call, retry once on failure
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      parsedJson = await generateJson(prompt, EXTRACTION_SYSTEM_INSTRUCTION, 'low');
-      const validated = ExtractedInvoiceSchema.parse(parsedJson);
+      const jsonRes = await generateJson(prompt, EXTRACTION_SYSTEM_INSTRUCTION, 'low');
+      const validated = ExtractedInvoiceSchema.parse(jsonRes.data);
 
       // Check for missing fields that are essential for invoice generation
       const missingFields: string[] = [];
@@ -155,6 +157,7 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
           error: `Incomplete invoice data. Missing required fields: ${missingFields.join(', ')}`,
           missingFields,
           data: validated,
+          source: jsonRes.source,
         };
       }
 
@@ -162,6 +165,7 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
         success: true,
         data: validated,
         missingFields,
+        source: jsonRes.source,
       };
     } catch (err: any) {
       lastError = err;
@@ -182,6 +186,7 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
             error: `Incomplete invoice data. Missing required fields: ${missingFields.join(', ')}`,
             missingFields,
             data: fallbackData,
+            source: 'rule-fallback',
           };
         }
 
@@ -189,6 +194,7 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
           success: true,
           data: fallbackData,
           missingFields,
+          source: 'rule-fallback',
         };
       }
 
@@ -203,5 +209,6 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
     error: `Invoice extraction failed: ${lastError?.message || 'Unknown error'}`,
     missingFields: ['parsing_failed'],
     data: null,
+    source: 'rule-fallback',
   };
 }

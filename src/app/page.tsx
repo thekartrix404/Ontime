@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 
 interface LineItem {
   description: string;
@@ -13,6 +14,7 @@ interface DraftData {
     success: boolean;
     missingFields: string[];
     error?: string;
+    source?: string;
     data: {
       client_name: string | null;
       company: string | null;
@@ -63,6 +65,7 @@ interface DraftData {
     totalAmount: string;
   };
   explanation: string;
+  explanationSource?: string;
 }
 
 interface InvoiceResult {
@@ -84,7 +87,7 @@ interface InvoiceResult {
 const SAMPLE_EMAILS = [
   {
     id: 'reliable',
-    label: 'Client (a): Reliable (Alice Vance - 4/4 on time)',
+    label: 'Reliable client',
     text: `Hi Alex,
 Hope you're having a great week! Thanks for completing the quarterly web infrastructure maintenance.
 Please send over the invoice for $1,800.00 USD to Reliable Solutions LLC, attention Alice Vance at alice@reliablecorp.com.
@@ -95,7 +98,7 @@ Alice Vance`,
   },
   {
     id: 'late',
-    label: 'Client (b): Chronically Late (Bob Slow - 3/4 late, avg 19 days)',
+    label: 'Chronically late client',
     text: `Hey Alex,
 Wrapping up the campaign assets. Go ahead and invoice Lagging Dynamics Inc for Bob Slow (bob@lateinc.com).
 Item 1: "Digital Marketing Campaign Strategy" - 1 unit at $2,000.00
@@ -106,7 +109,7 @@ Bob`,
   },
   {
     id: 'new',
-    label: 'Client (c): New Client (Claire Startup - No History)',
+    label: 'New client',
     text: `Hi Alex!
 Thrilled to kick off our work together. Please bill New Horizons Ltd, attention Claire Startup (claire@newhorizons.io) for the project:
 "Brand Identity & Style Guide" - 1 unit at $1,500.00 USD.
@@ -294,17 +297,31 @@ export default function Home() {
     <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       {/* Header */}
       <header className="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur sticky top-0 z-20 px-6 py-4 flex items-center justify-between shadow-lg shadow-black/20">
-        <div className="max-w-[900px] w-full mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center font-bold text-white shadow-indigo-500/25 shadow-lg border border-indigo-400/30 text-lg">
-              ⚡
-            </div>
-            <div>
-              <h1 className="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
-                OnTime <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 font-semibold border border-indigo-700/60 uppercase tracking-wider">PayPal Agent</span>
-              </h1>
-              <p className="text-xs text-slate-400">Preventing late payments before they happen</p>
-            </div>
+        <div className="max-w-[1000px] w-full mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-6">
+            <Link href="/" className="flex items-center space-x-3 group">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center font-bold text-white shadow-indigo-500/25 shadow-lg border border-indigo-400/30 text-lg group-hover:scale-105 transition-transform">
+                ⚡
+              </div>
+              <div>
+                <h1 className="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
+                  OnTime <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 font-semibold border border-indigo-700/60 uppercase tracking-wider">PayPal Agent</span>
+                </h1>
+                <p className="text-xs text-slate-400">Preventing late payments before they happen</p>
+              </div>
+            </Link>
+
+            <nav className="hidden sm:flex items-center gap-1 text-sm font-medium">
+              <Link href="/" className="px-3 py-1.5 rounded-lg text-indigo-300 bg-indigo-950/70 border border-indigo-800/60 transition-colors">
+                New Invoice
+              </Link>
+              <Link href="/dashboard" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                Dashboard
+              </Link>
+              <Link href="/audit" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+                Audit Log
+              </Link>
+            </nav>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span className="flex items-center gap-2 text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-3 py-1.5 rounded-full font-medium">
@@ -437,10 +454,17 @@ export default function Home() {
             {/* AI Explanation Banner */}
             <div className="bg-indigo-950/40 border border-indigo-800/60 rounded-xl p-5 flex gap-3.5 shadow-inner">
               <span className="text-indigo-400 text-xl leading-none mt-0.5">💡</span>
-              <div className="space-y-1.5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-300">
-                  AI Terms Recommendation
-                </h3>
+              <div className="space-y-1.5 flex-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-300">
+                    AI Terms Recommendation
+                  </h3>
+                  {draft.explanationSource && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-mono uppercase font-bold tracking-wider bg-slate-900 border border-slate-700 text-indigo-300">
+                      source: {draft.explanationSource}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-slate-200 leading-relaxed italic">
                   &ldquo;{draft.explanation}&rdquo;
                 </p>
@@ -528,6 +552,11 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <span>Extracted Invoice Details</span>
+                  {draft.extraction.source && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-mono uppercase font-bold tracking-wider bg-slate-900 border border-slate-700 text-cyan-300">
+                      source: {draft.extraction.source}
+                    </span>
+                  )}
                   {draft.extraction.missingFields && draft.extraction.missingFields.length > 0 && (
                     <span className="text-xs px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800 font-semibold">
                       Missing: {draft.extraction.missingFields.join(', ')}

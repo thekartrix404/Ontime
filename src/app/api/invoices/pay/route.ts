@@ -1,0 +1,105 @@
+import { NextResponse } from 'next/server';
+import { getDb } from '@/lib/db';
+import { recordPayment, ensureEnvLoaded } from '@/lib/paypal';
+import { getSimulatedNow } from '@/lib/clock';
+
+ensureEnvLoaded();
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const invoiceId = body.invoiceId;
+
+    if (!invoiceId) {
+      return NextResponse.json({ error: 'invoiceId is required' }, { status: 400 });
+    }
+
+    const db = getDb();
+    const invoice = db.prepare(`
+      SELECT i.*, c.name as client_name, c.company
+      FROM invoices i
+      JOIN clients c ON c.id = i.client_id
+      WHERE i.id = ?
+    `).get(invoiceId) as any;
+
+    if (!invoice) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    const simulatedNow = getSimulatedNow();
+    const paymentDate = simulatedNow.toISOString().split('T')[0];
+
+    // Call PayPal recordPayment if paypal_invoice_id exists
+    let paypalPaymentResult: any = null;
+    if (invoice.paypal_invoice_id) {
+      try {
+        paypalPaymentResult = await recordPayment(invoice.paypal_invoice_id, {
+          amount: invoice.amount,
+          currency: invoice.currency || 'USD',
+          paymentDate,
+          method: 'PAYPAL',
+          note: 'Marked as paid via OnTime dashboard',
+        });
+      } catch (err: any) {
+        console.error(`[recordPayment] PayPal call error for ${invoiceId}:`, err);
+        // Continue to record locally even if sandbox returned an error
+      }
+    }
+
+    // Update invoice status to MARKED_AS_PAID
+    db.prepare(`
+      UPDATE invoices
+      SET status = 'MARKED_AS_PAID'
+      WHERE id = ?
+    `).run(invoiceId);
+
+    // Insert payment record
+    const paymentId = `pay_${Date.now()}`;
+    db.prepare(`
+      INSERT INTO payments (id, invoice_id, amount, payment_date, payment_method, reference_id, created_at)
+      VALUES (?, ?, ?, ?, 'PAYPAL', ?, CURRENT_TIMESTAMP)
+    `).run(
+      paymentId,
+      invoiceId,
+      invoice.amount,
+      paymentDate,
+      paypalPaymentResult?.payment_id || `MANUAL-${Date.now()}`
+    );
+
+    // Record audit row
+    const auditId = `audit_pay_${Date.now()}`;
+    const clientName = invoice.client_name || invoice.company || 'Client';
+    const providerUsed = paypalPaymentResult?.providerUsed || 'mock';
+    const auditDetails = {
+      timestamp: simulatedNow.toISOString(),
+      action: 'PAYMENT_RECORDED',
+      invoiceId,
+      invoiceNumber: invoice.invoice_number,
+      clientName,
+      amount: invoice.amount,
+      providerUsed,
+      summaryText: `Recorded payment of $${invoice.amount} for invoice ${invoice.invoice_number} (${clientName}) via PayPal [${providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]. Status set to MARKED_AS_PAID.`,
+      approvedBy: 'user',
+    };
+
+    db.prepare(`
+      INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
+      VALUES (?, 'PAYMENT_RECORDED', 'invoice', ?, ?, CURRENT_TIMESTAMP)
+    `).run(
+      auditId,
+      invoiceId,
+      JSON.stringify(auditDetails)
+    );
+
+    return NextResponse.json({
+      success: true,
+      invoiceId,
+      status: 'MARKED_AS_PAID',
+      paymentId,
+    });
+  } catch (err: any) {
+    console.error('Failed to mark invoice as paid:', err);
+    return NextResponse.json({ error: err.message || 'Payment recording failed' }, { status: 500 });
+  }
+}
+

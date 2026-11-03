@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS followups (
   channel TEXT NOT NULL DEFAULT 'email',
   message TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'PENDING',
+  source TEXT NOT NULL DEFAULT 'gemini-live',
   scheduled_date TEXT,
   sent_at TEXT,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
@@ -66,9 +67,38 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
 
+CREATE TABLE IF NOT EXISTS system_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS llm_cache (
+  cache_key TEXT PRIMARY KEY,
+  prompt TEXT NOT NULL,
+  response TEXT NOT NULL,
+  model TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+);
+
+CREATE TABLE IF NOT EXISTS approval_queue (
+  id TEXT PRIMARY KEY,
+  invoice_id TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  tone TEXT,
+  subject TEXT,
+  message TEXT NOT NULL,
+  proposed_late_fee_percent REAL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  rule_blocked TEXT,
+  source TEXT NOT NULL DEFAULT 'gemini-live',
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_client ON invoices(client_id);
 CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
 CREATE INDEX IF NOT EXISTS idx_followups_invoice ON followups(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_approval_queue_invoice ON approval_queue(invoice_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
 `;
 
@@ -82,6 +112,19 @@ export function getDb(): Database.Database {
     // Migration: ensure project_id column exists on existing databases
     try {
       dbInstance.exec('ALTER TABLE invoices ADD COLUMN project_id TEXT');
+    } catch {
+      // Column already exists
+    }
+
+    // Migration: ensure source column exists on followups and approval_queue
+    try {
+      dbInstance.exec("ALTER TABLE followups ADD COLUMN source TEXT NOT NULL DEFAULT 'gemini-live'");
+    } catch {
+      // Column already exists
+    }
+
+    try {
+      dbInstance.exec("ALTER TABLE approval_queue ADD COLUMN source TEXT NOT NULL DEFAULT 'gemini-live'");
     } catch {
       // Column already exists
     }

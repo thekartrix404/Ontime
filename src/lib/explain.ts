@@ -1,6 +1,12 @@
-import { generateText } from './llm';
+import { generateText, LlmSource } from './llm';
 import { ProposedTerms } from './terms';
 import { RiskLevel } from './risk';
+
+export interface ExplainResult {
+  text: string;
+  source: LlmSource;
+  toString(): string;
+}
 
 const EXPLAIN_SYSTEM_INSTRUCTION = `You are an assistant for an intelligent invoicing platform called OnTime.
 Your job is to write a concise, professional, 2 to 3 sentence explanation for an approval card presented to a freelancer or business owner before they send an invoice.
@@ -30,7 +36,7 @@ export async function explainRecommendation(
   reasons: string[],
   terms: ProposedTerms | Record<string, any>,
   metrics?: ClientMetrics
-): Promise<string> {
+): Promise<ExplainResult> {
   const reasonsList = reasons && reasons.length > 0
     ? reasons.map((r) => `- ${r}`).join('\n')
     : '- No prior payment history or risk factors recorded';
@@ -66,15 +72,30 @@ INSTRUCTIONS:
 - The LLM NEVER computes numbers or does arithmetic. State the pre-computed figures exactly as given.`;
 
   try {
-    return await generateText(prompt, EXPLAIN_SYSTEM_INSTRUCTION, 'low');
+    const res = await generateText(prompt, EXPLAIN_SYSTEM_INSTRUCTION, 'low');
+    return {
+      text: res.text,
+      source: res.source,
+      toString() {
+        return res.text;
+      },
+    };
   } catch (err: any) {
     console.warn('Gemini text generation failed, using grounded fallback explanation:', err?.message || err);
+    let fallbackText = '';
     if (level === 'high') {
-      return `Based on a high risk score of ${score}/100 and a history of late payments (${reasons[0] || 'past delays'}), structured milestone terms are recommended. We propose a 40% upfront deposit of $${terms.depositAmount} before work commences and a 60% balance of $${terms.deliveryAmount} upon delivery. This structure safeguards your cash flow while remaining transparent and fair for the client.`;
+      fallbackText = `Based on a high risk score of ${score}/100 and a history of late payments (${reasons[0] || 'past delays'}), structured milestone terms are recommended. We propose a 40% upfront deposit of $${terms.depositAmount} before work commences and a 60% balance of $${terms.deliveryAmount} upon delivery. This structure safeguards your cash flow while remaining transparent and fair for the client.`;
+    } else if (level === 'medium') {
+      fallbackText = `This client has a moderate risk score of ${score}/100 (${reasons[0] || 'new client'}). We recommend Net-7 payment terms with a 2% early-pay discount to encourage timely settlement. Paying within 7 days allows the client to save $${terms.discountAmount}, paying $${terms.discountedAmount} instead of the full $${terms.totalAmount}.`;
+    } else {
+      fallbackText = `With a low risk score of ${score}/100 and a consistent on-time payment track record, this client qualifies for standard Net-14 terms. Full amount ($${terms.totalAmount}) is due within 14 days of invoice issue. This reinforces a reliable working relationship while preserving predictable cash flow.`;
     }
-    if (level === 'medium') {
-      return `This client has a moderate risk score of ${score}/100 (${reasons[0] || 'new client'}). We recommend Net-7 payment terms with a 2% early-pay discount to encourage timely settlement. Paying within 7 days allows the client to save $${terms.discountAmount}, paying $${terms.discountedAmount} instead of the full $${terms.totalAmount}.`;
-    }
-    return `With a low risk score of ${score}/100 and a consistent on-time payment track record, this client qualifies for standard Net-14 terms. Full amount ($${terms.totalAmount}) is due within 14 days of invoice issue. This reinforces a reliable working relationship while preserving predictable cash flow.`;
+    return {
+      text: fallbackText,
+      source: 'rule-fallback',
+      toString() {
+        return fallbackText;
+      },
+    };
   }
 }

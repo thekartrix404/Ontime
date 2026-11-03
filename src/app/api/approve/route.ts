@@ -156,7 +156,8 @@ export async function POST(req: NextRequest) {
         ppId
       );
 
-      const auditMsg = `Sent standard invoice ${invoiceNumber} as-is for $${totalAmount} USD to ${client.name} (${client.email}). PayPal Invoice ID: ${ppId}.`;
+      const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
+      const auditMsg = `Sent standard invoice ${invoiceNumber} as-is for $${totalAmount} USD to ${client.name} (${client.email}). PayPal Invoice ID: ${ppId}.${providerTag}`;
       db.prepare(
         `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
          VALUES (?, 'INVOICE_SENT_AS_IS', 'invoice', ?, ?, CURRENT_TIMESTAMP)`
@@ -245,7 +246,8 @@ export async function POST(req: NextRequest) {
         ppId
       );
 
-      const auditMsg = `Approved low-risk terms (Net-14). Created and sent PayPal invoice ${invoiceNumber} for $${totalAmount} USD to ${client.name} (${client.email}). PayPal ID: ${ppId}.`;
+      const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
+      const auditMsg = `Approved low-risk terms (Net-14). Created and sent PayPal invoice ${invoiceNumber} for $${totalAmount} USD to ${client.name} (${client.email}). PayPal ID: ${ppId}.${providerTag}`;
       db.prepare(
         `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
          VALUES (?, 'TERMS_APPROVED_LOW', 'invoice', ?, ?, CURRENT_TIMESTAMP)`
@@ -323,7 +325,8 @@ export async function POST(req: NextRequest) {
         ppId
       );
 
-      const auditMsg = `Approved medium-risk terms. Created and sent PayPal invoice ${invoiceNumber} for $${totalAmount} USD with Net-7 and 2% early discount ($${proposed.discountAmount} off) to ${client.name} (${client.email}). PayPal ID: ${ppId}.`;
+      const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
+      const auditMsg = `Approved medium-risk terms. Created and sent PayPal invoice ${invoiceNumber} for $${totalAmount} USD with Net-7 and 2% early discount ($${proposed.discountAmount} off) to ${client.name} (${client.email}). PayPal ID: ${ppId}.${providerTag}`;
       db.prepare(
         `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
          VALUES (?, 'TERMS_APPROVED_MEDIUM', 'invoice', ?, ?, CURRENT_TIMESTAMP)`
@@ -463,7 +466,8 @@ export async function POST(req: NextRequest) {
         projectId
       );
 
-      const auditMsg = `Approved high-risk terms (40% deposit / 60% delivery) for ${projectName} (Project: ${projectId}). Sent deposit invoice ${depositInvNumber} ($${depositAmount}, PayPal: ${ppDepositId}). Created balance invoice ${deliveryInvNumber} ($${deliveryAmount}, PayPal: ${ppDeliveryId}) as DRAFT pending delivery.`;
+      const providerTag = ` [Provider: ${ppDeposit?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
+      const auditMsg = `Approved high-risk terms (40% deposit / 60% delivery) for ${projectName} (Project: ${projectId}). Sent deposit invoice ${depositInvNumber} ($${depositAmount}, PayPal: ${ppDepositId}). Created balance invoice ${deliveryInvNumber} ($${deliveryAmount}, PayPal: ${ppDeliveryId}) as DRAFT pending delivery.${providerTag}`;
       db.prepare(
         `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
          VALUES (?, 'TERMS_APPROVED_HIGH', 'project', ?, ?, CURRENT_TIMESTAMP)`

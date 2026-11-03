@@ -270,6 +270,7 @@ export class SandboxPayPalProvider implements PaymentProvider {
     if (invoiceId) {
       data.id = invoiceId;
     }
+    data.providerUsed = 'sandbox';
 
     return data;
   }
@@ -301,13 +302,15 @@ export class SandboxPayPalProvider implements PaymentProvider {
     }
 
     if (!responseText) {
-      return { success: true, status: response.status, invoiceId };
+      return { success: true, status: response.status, invoiceId, providerUsed: 'sandbox' };
     }
 
     try {
-      return JSON.parse(responseText);
+      const parsed = JSON.parse(responseText);
+      parsed.providerUsed = 'sandbox';
+      return parsed;
     } catch {
-      return { success: true, status: response.status, body: responseText };
+      return { success: true, status: response.status, body: responseText, providerUsed: 'sandbox' };
     }
   }
 
@@ -326,7 +329,9 @@ export class SandboxPayPalProvider implements PaymentProvider {
       throw new Error(`Failed to get PayPal invoice (${response.status}): ${errText}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    data.providerUsed = 'sandbox';
+    return data;
   }
 
   async remindInvoice(invoiceId: string, options?: RemindInvoiceOptions): Promise<any> {
@@ -356,13 +361,15 @@ export class SandboxPayPalProvider implements PaymentProvider {
     }
 
     if (!responseText || response.status === 204) {
-      return { success: true, status: response.status, invoiceId };
+      return { success: true, status: response.status, invoiceId, providerUsed: 'sandbox' };
     }
 
     try {
-      return JSON.parse(responseText);
+      const parsed = JSON.parse(responseText);
+      parsed.providerUsed = 'sandbox';
+      return parsed;
     } catch {
-      return { success: true, status: response.status, body: responseText };
+      return { success: true, status: response.status, body: responseText, providerUsed: 'sandbox' };
     }
   }
 
@@ -407,13 +414,15 @@ export class SandboxPayPalProvider implements PaymentProvider {
     }
 
     if (!responseText) {
-      return { success: true, status: response.status, invoiceId };
+      return { success: true, status: response.status, invoiceId, providerUsed: 'sandbox' };
     }
 
     try {
-      return JSON.parse(responseText);
+      const parsed = JSON.parse(responseText);
+      parsed.providerUsed = 'sandbox';
+      return parsed;
     } catch {
-      return { success: true, status: response.status, body: responseText };
+      return { success: true, status: response.status, body: responseText, providerUsed: 'sandbox' };
     }
   }
 }
@@ -461,6 +470,7 @@ export class MockPayPalProvider implements PaymentProvider {
           .reduce((sum, item) => sum + parseFloat(item.unit_amount.value) * parseFloat(item.quantity || '1'), 0)
           .toFixed(2),
       },
+      providerUsed: 'mock',
     };
     this.invoices.set(invoiceId, invoice);
     return invoice;
@@ -468,39 +478,131 @@ export class MockPayPalProvider implements PaymentProvider {
 
   async sendInvoice(invoiceId: string, options?: SendInvoiceOptions): Promise<any> {
     const invoice = this.invoices.get(invoiceId);
-    if (!invoice) throw new Error(`Invoice not found: ${invoiceId}`);
-    invoice.status = 'SENT';
-    return { success: true, status: 'SENT', invoiceId };
+    if (invoice) invoice.status = 'SENT';
+    return { success: true, status: 'SENT', invoiceId, providerUsed: 'mock' };
   }
 
   async getInvoice(invoiceId: string): Promise<any> {
     const invoice = this.invoices.get(invoiceId);
     if (!invoice) throw new Error(`Invoice not found: ${invoiceId}`);
-    return invoice;
+    return { ...invoice, providerUsed: 'mock' };
   }
 
   async remindInvoice(invoiceId: string, options?: RemindInvoiceOptions): Promise<any> {
     const invoice = this.invoices.get(invoiceId);
-    if (!invoice) throw new Error(`Invoice not found: ${invoiceId}`);
-    return { success: true, invoiceId, reminderSent: true };
+    return { success: true, invoiceId, reminderSent: true, subject: options?.subject, note: options?.note, providerUsed: 'mock' };
   }
 
   async recordPayment(invoiceId: string, input: RecordPaymentInput): Promise<any> {
     const invoice = this.invoices.get(invoiceId);
-    if (!invoice) throw new Error(`Invoice not found: ${invoiceId}`);
-    invoice.status = 'PAID';
-    return { payment_id: `MOCK-PAY-${Date.now()}` };
+    if (invoice) invoice.status = 'PAID';
+    return { payment_id: `MOCK-PAY-${Date.now()}`, providerUsed: 'mock' };
   }
 }
 
-// Active provider instance (defaults to Sandbox if credentials present, otherwise Mock fallback)
+export class FallbackPaymentProvider implements PaymentProvider {
+  private primary: SandboxPayPalProvider;
+  private fallback: MockPayPalProvider;
+
+  constructor() {
+    this.primary = new SandboxPayPalProvider();
+    this.fallback = new MockPayPalProvider();
+  }
+
+  private isNetworkError(err: any): boolean {
+    const msg = (err?.message || '').toLowerCase();
+    const code = err?.cause?.code || err?.code;
+    return msg.includes('fetch failed') || code === 'ENOTFOUND' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT';
+  }
+
+  async getToken(): Promise<string> {
+    try {
+      return await this.primary.getToken();
+    } catch (err: any) {
+      if (this.isNetworkError(err)) {
+        return this.fallback.getToken();
+      }
+      throw err;
+    }
+  }
+
+  async generateNextInvoiceNumber(): Promise<string> {
+    try {
+      return await this.primary.generateNextInvoiceNumber();
+    } catch (err: any) {
+      if (this.isNetworkError(err)) {
+        return this.fallback.generateNextInvoiceNumber();
+      }
+      throw err;
+    }
+  }
+
+  async createInvoice(input: CreateInvoiceInput): Promise<any> {
+    try {
+      return await this.primary.createInvoice(input);
+    } catch (err: any) {
+      if (this.isNetworkError(err)) {
+        return this.fallback.createInvoice(input);
+      }
+      throw err;
+    }
+  }
+
+  async sendInvoice(invoiceId: string, options?: SendInvoiceOptions): Promise<any> {
+    try {
+      return await this.primary.sendInvoice(invoiceId, options);
+    } catch (err: any) {
+      if (this.isNetworkError(err)) {
+        return this.fallback.sendInvoice(invoiceId, options);
+      }
+      throw err;
+    }
+  }
+
+  async getInvoice(invoiceId: string): Promise<any> {
+    try {
+      return await this.primary.getInvoice(invoiceId);
+    } catch (err: any) {
+      if (this.isNetworkError(err)) {
+        return this.fallback.getInvoice(invoiceId);
+      }
+      throw err;
+    }
+  }
+
+  async remindInvoice(invoiceId: string, options?: RemindInvoiceOptions): Promise<any> {
+    try {
+      return await this.primary.remindInvoice(invoiceId, options);
+    } catch (err: any) {
+      if (this.isNetworkError(err)) {
+        return this.fallback.remindInvoice(invoiceId, options);
+      }
+      throw err;
+    }
+  }
+
+  async recordPayment(invoiceId: string, input: RecordPaymentInput): Promise<any> {
+    try {
+      return await this.primary.recordPayment(invoiceId, input);
+    } catch (err: any) {
+      if (this.isNetworkError(err)) {
+        return this.fallback.recordPayment(invoiceId, input);
+      }
+      throw err;
+    }
+  }
+}
+
+// Active provider instance (defaults to Sandbox if credentials present with Mock fallback)
 let activeProvider: PaymentProvider | null = null;
 
 export function getPaymentProvider(): PaymentProvider {
   if (!activeProvider) {
     ensureEnvLoaded();
-    if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_SECRET) {
-      activeProvider = new SandboxPayPalProvider();
+    if (process.env.PAYPAL_MODE === 'mock') {
+      activeProvider = new MockPayPalProvider();
+    } else if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_SECRET) {
+      activeProvider = new FallbackPaymentProvider();
     } else {
       activeProvider = new MockPayPalProvider();
     }

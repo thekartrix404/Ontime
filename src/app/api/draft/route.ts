@@ -107,7 +107,8 @@ export async function POST(req: NextRequest) {
       risk: riskResult,
       proposedTerms,
       originalTerms,
-      explanation,
+      explanation: typeof explanation === 'string' ? explanation : explanation.text,
+      explanationSource: (explanation as any).source || 'gemini-live',
     });
   } catch (err: any) {
     console.error('Error in /api/draft:', err);

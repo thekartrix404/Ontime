@@ -58,18 +58,19 @@ export async function POST(req: NextRequest) {
     const ppId = invoice.paypal_invoice_id;
 
     // Send the draft invoice via PayPal API
-    await provider.sendInvoice(ppId, {
+    const sendRes = await provider.sendInvoice(ppId, {
       sendToRecipient: true,
       subject: `Final Balance Invoice ${invoice.invoice_number} (Project Delivered)`,
       note: invoice.notes || 'Project delivered. Please complete payment for the remaining balance.',
     });
+    const providerTag = ` [Provider: ${sendRes?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
 
     // Update status in local database to SENT
     db.prepare("UPDATE invoices SET status = 'SENT' WHERE id = ?").run(invoice.id);
 
     // Write audit log entry in plain English
     const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(invoice.client_id) as any;
-    const auditMsg = `Project delivered! Sent final balance invoice ${invoice.invoice_number} for $${invoice.amount} ${invoice.currency} to ${client?.name || 'client'} (${client?.email || ''}). PayPal ID: ${ppId}.`;
+    const auditMsg = `Project delivered! Sent final balance invoice ${invoice.invoice_number} for $${invoice.amount} ${invoice.currency} to ${client?.name || 'client'} (${client?.email || ''}). PayPal ID: ${ppId}.${providerTag}`;
 
     db.prepare(
       `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
