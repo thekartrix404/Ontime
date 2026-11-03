@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   terms TEXT,
   notes TEXT,
   paypal_invoice_id TEXT,
+  project_id TEXT,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
@@ -77,6 +78,19 @@ export function getDb(): Database.Database {
     dbInstance.pragma('journal_mode = WAL');
     dbInstance.pragma('foreign_keys = ON');
     dbInstance.exec(SCHEMA_SQL);
+
+    // Migration: ensure project_id column exists on existing databases
+    try {
+      dbInstance.exec('ALTER TABLE invoices ADD COLUMN project_id TEXT');
+    } catch {
+      // Column already exists
+    }
+
+    try {
+      dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_invoices_project ON invoices(project_id)');
+    } catch {
+      // Ignore
+    }
   }
   return dbInstance;
 }

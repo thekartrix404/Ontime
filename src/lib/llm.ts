@@ -82,15 +82,14 @@ async function callGeminiWithRetry(
   prompt: string,
   config: Record<string, any>
 ) {
-  // Try primary model (gemini-3.8-flash) with an 8s timeout
+  // Try primary model (gemini-3.8-flash) with a 25s timeout
   try {
-    return await callWithTimeout(GEMINI_MODEL, prompt, config, 8000);
+    return await callWithTimeout(GEMINI_MODEL, prompt, config, 25000);
   } catch (err: any) {
-    // If gemini-3.8-flash hangs, times out, drops connection (ECONNRESET),
-    // or returns 503 UNAVAILABLE, fall back to gemini-3.5-flash
+    // If primary hangs or errors, try fallback with 25s timeout
     try {
-      return await callWithTimeout(FALLBACK_MODEL, prompt, config, 15000);
-    } catch (fallbackErr: any) {
+      return await callWithTimeout(FALLBACK_MODEL, prompt, config, 25000);
+    } catch {
       throw err;
     }
   }
