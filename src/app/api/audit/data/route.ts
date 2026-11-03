@@ -8,7 +8,7 @@ export async function GET() {
     const rows = db.prepare(`
       SELECT *
       FROM audit_log
-      ORDER BY created_at DESC
+      ORDER BY COALESCE(real_time, created_at) DESC
       LIMIT 100
     `).all() as any[];
 
@@ -20,15 +20,34 @@ export async function GET() {
         parsed = { summaryText: r.details };
       }
 
+      const realTime = r.real_time || r.created_at;
+      const simulatedTime = r.simulated_time || (parsed && parsed.simulatedTime) || (parsed && parsed.timestamp) || realTime;
+      const daysOverdue = r.days_overdue !== null && r.days_overdue !== undefined
+        ? r.days_overdue
+        : (parsed && typeof parsed.daysOverdue === 'number' ? parsed.daysOverdue : null);
+
+      let summaryText = parsed.summaryText || r.details;
+      if (typeof summaryText === 'string' && summaryText.trim().startsWith('{')) {
+        try {
+          const inner = JSON.parse(summaryText);
+          summaryText = inner.summaryText || 'Audit record logged';
+        } catch {
+          // ignore
+        }
+      }
+
       return {
         id: r.id,
         action: r.action,
         entityType: r.entity_type,
         entityId: r.entity_id,
         createdAt: r.created_at,
+        realTime,
+        simulatedTime,
+        daysOverdue,
         details: parsed,
-        summaryText: parsed.summaryText || r.details,
-        decision: parsed.decision || (r.action === 'GUARD_ALLOWED' ? 'allowed' : r.action === 'GUARD_BLOCKED' ? 'blocked' : undefined),
+        summaryText,
+        decision: parsed.decision || (r.action === 'GUARD_ALLOWED' ? 'allowed' : r.action === 'GUARD_QUEUED' ? 'queued_review' : r.action === 'GUARD_BLOCKED' ? 'blocked' : undefined),
         ruleApplied: parsed.ruleApplied,
         approvedBy: parsed.approvedBy,
         source: parsed.source || (r.action === 'FALLBACK_USED' ? 'rule-fallback' : undefined),

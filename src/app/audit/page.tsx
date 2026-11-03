@@ -9,8 +9,11 @@ interface AuditItem {
   entityType: string;
   entityId: string;
   createdAt: string;
+  realTime?: string;
+  simulatedTime?: string;
+  daysOverdue?: number | null;
   summaryText: string;
-  decision?: 'allowed' | 'blocked';
+  decision?: 'allowed' | 'blocked' | 'queued_review';
   ruleApplied?: string;
   approvedBy?: string;
   source?: string;
@@ -134,16 +137,40 @@ export default function AuditPage() {
               </div>
             ) : (
               logs.map((log) => {
-                const isAllowed = log.decision === 'allowed';
-                const isBlocked = log.decision === 'blocked';
+                const isAllowed = log.decision === 'allowed' || log.action === 'GUARD_ALLOWED';
+                const isBlocked = log.decision === 'blocked' || log.action === 'GUARD_BLOCKED';
+                const isQueued = log.decision === 'queued_review' || log.action === 'GUARD_QUEUED';
                 const isUserAction = log.approvedBy === 'user' || log.action.startsWith('USER_');
+
+                const realTimeStr = log.realTime
+                  ? log.realTime.replace('T', ' ').substring(0, 19)
+                  : log.createdAt.replace('T', ' ').substring(0, 19);
+
+                const daysOverdueNum = typeof log.daysOverdue === 'number' ? log.daysOverdue : null;
+                const daysOverdueText = daysOverdueNum !== null
+                  ? `Day ${daysOverdueNum >= 0 ? '+' + daysOverdueNum : daysOverdueNum}`
+                  : null;
+
+                const simDateText = log.simulatedTime
+                  ? log.simulatedTime.substring(0, 10)
+                  : null;
+
+                // Ensure summaryText is strictly plain-English and not a raw JSON blob
+                let cleanSummary = log.summaryText;
+                if (!cleanSummary || (typeof cleanSummary === 'string' && cleanSummary.trim().startsWith('{'))) {
+                  if (log.details?.summaryText) {
+                    cleanSummary = log.details.summaryText;
+                  } else {
+                    cleanSummary = `Activity logged: ${log.action}`;
+                  }
+                }
 
                 return (
                   <div
                     key={log.id}
                     className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-xs"
                   >
-                    <div className="space-y-1.5 flex-1">
+                    <div className="space-y-2 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         {isAllowed && (
                           <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase bg-emerald-950 text-emerald-300 border border-emerald-800">
@@ -155,6 +182,11 @@ export default function AuditPage() {
                             BLOCKED
                           </span>
                         )}
+                        {isQueued && (
+                          <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase bg-amber-950 text-amber-300 border border-amber-700">
+                            QUEUED FOR REVIEW
+                          </span>
+                        )}
                         {isUserAction && (
                           <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase bg-indigo-950 text-indigo-300 border border-indigo-800">
                             USER ACTION
@@ -164,7 +196,7 @@ export default function AuditPage() {
                           {log.action}
                         </span>
                         {log.approvedBy && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
                             approved_by: {log.approvedBy}
                           </span>
                         )}
@@ -182,7 +214,7 @@ export default function AuditPage() {
 
                       {/* Plain-English narrative description */}
                       <p className="text-slate-200 font-medium text-sm leading-relaxed">
-                        {log.summaryText}
+                        {cleanSummary}
                       </p>
 
                       {log.ruleApplied && (
@@ -190,10 +222,30 @@ export default function AuditPage() {
                           🛡️ {log.ruleApplied}
                         </p>
                       )}
+
+                      {/* Collapsible raw JSON details section */}
+                      {log.details && (
+                        <details className="mt-2 text-slate-400 font-mono text-[11px]">
+                          <summary className="cursor-pointer text-indigo-400 hover:text-indigo-300 select-none">
+                            View details
+                          </summary>
+                          <pre className="mt-1.5 p-2 rounded bg-slate-900/90 border border-slate-800 text-slate-300 overflow-x-auto text-[10px] leading-relaxed">
+                            {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
+                          </pre>
+                        </details>
+                      )}
                     </div>
 
-                    <div className="text-right text-[11px] text-slate-500 shrink-0 font-mono">
-                      {log.createdAt.replace('T', ' ').substring(0, 19)}
+                    {/* Real time and simulated day beside each other */}
+                    <div className="text-right text-[11px] text-slate-400 shrink-0 font-mono space-y-0.5">
+                      <div className="text-slate-300 font-semibold">
+                        {realTimeStr}
+                      </div>
+                      {(daysOverdueText || simDateText) && (
+                        <div className="text-indigo-400 text-[10px]">
+                          {daysOverdueText} ({simDateText})
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

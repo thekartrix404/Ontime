@@ -190,9 +190,10 @@ Evaluate this invoice and choose the appropriate tool action now.`;
     );
 
     if (toolCallResponse.fallbackUsed) {
+      const now = new Date();
       db.prepare(`
-        INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-        VALUES (?, 'FALLBACK_USED', 'invoice', ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+        VALUES (?, 'FALLBACK_USED', 'invoice', ?, ?, ?, ?, ?, ?)
       `).run(
         `audit_fb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         inv.id,
@@ -200,7 +201,11 @@ Evaluate this invoice and choose the appropriate tool action now.`;
           summaryText: `Fallback used (${toolCallResponse.fallbackUsed}) for invoice ${inv.invoice_number}`,
           source: toolCallResponse.source,
           fallbackReason: toolCallResponse.fallbackUsed,
-        })
+        }),
+        now.toISOString(),
+        simulatedNow.toISOString(),
+        daysOverdue,
+        now.toISOString()
       );
     }
 

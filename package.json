@@ -11,7 +11,8 @@
     "test:paypal": "tsx scripts/test-paypal.ts",
     "test:risk": "tsx scripts/test-risk.ts",
     "test:llm": "tsx scripts/test-llm.ts",
-    "test:agent": "tsx scripts/test-agent.ts"
+    "test:agent": "tsx scripts/test-agent.ts",
+    "test:e2e": "tsx scripts/test-e2e.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",

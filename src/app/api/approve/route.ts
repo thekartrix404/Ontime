@@ -8,6 +8,7 @@ import {
 } from '@/lib/paypal';
 import { RiskLevel } from '@/lib/risk';
 import { proposeTerms } from '@/lib/terms';
+import { getSimulatedNow } from '@/lib/clock';
 
 ensureEnvLoaded();
 
@@ -158,10 +159,19 @@ export async function POST(req: NextRequest) {
 
       const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
       const auditMsg = `Sent standard invoice ${invoiceNumber} as-is for $${totalAmount} USD to ${client.name} (${client.email}). PayPal Invoice ID: ${ppId}.${providerTag}`;
+      const realTime1 = new Date().toISOString();
+      const simulatedTime1 = getSimulatedNow().toISOString();
       db.prepare(
-        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-         VALUES (?, 'INVOICE_SENT_AS_IS', 'invoice', ?, ?, CURRENT_TIMESTAMP)`
-      ).run('audit_' + crypto.randomUUID().slice(0, 8), localInvoiceId, auditMsg);
+        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+         VALUES (?, 'INVOICE_SENT_AS_IS', 'invoice', ?, ?, ?, ?, 0, ?)`
+      ).run(
+        'audit_' + crypto.randomUUID().slice(0, 8),
+        localInvoiceId,
+        JSON.stringify({ summaryText: auditMsg, providerUsed: ppInvoice?.providerUsed }),
+        realTime1,
+        simulatedTime1,
+        realTime1
+      );
 
       return NextResponse.json({
         success: true,
@@ -248,10 +258,19 @@ export async function POST(req: NextRequest) {
 
       const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
       const auditMsg = `Approved low-risk terms (Net-14). Created and sent PayPal invoice ${invoiceNumber} for $${totalAmount} USD to ${client.name} (${client.email}). PayPal ID: ${ppId}.${providerTag}`;
+      const realTime2 = new Date().toISOString();
+      const simulatedTime2 = getSimulatedNow().toISOString();
       db.prepare(
-        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-         VALUES (?, 'TERMS_APPROVED_LOW', 'invoice', ?, ?, CURRENT_TIMESTAMP)`
-      ).run('audit_' + crypto.randomUUID().slice(0, 8), localId, auditMsg);
+        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+         VALUES (?, 'TERMS_APPROVED_LOW', 'invoice', ?, ?, ?, ?, 0, ?)`
+      ).run(
+        'audit_' + crypto.randomUUID().slice(0, 8),
+        localId,
+        JSON.stringify({ summaryText: auditMsg, providerUsed: ppInvoice?.providerUsed }),
+        realTime2,
+        simulatedTime2,
+        realTime2
+      );
 
       createdInvoices.push({
         id: localId,
@@ -327,10 +346,19 @@ export async function POST(req: NextRequest) {
 
       const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
       const auditMsg = `Approved medium-risk terms. Created and sent PayPal invoice ${invoiceNumber} for $${totalAmount} USD with Net-7 and 2% early discount ($${proposed.discountAmount} off) to ${client.name} (${client.email}). PayPal ID: ${ppId}.${providerTag}`;
+      const realTime3 = new Date().toISOString();
+      const simulatedTime3 = getSimulatedNow().toISOString();
       db.prepare(
-        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-         VALUES (?, 'TERMS_APPROVED_MEDIUM', 'invoice', ?, ?, CURRENT_TIMESTAMP)`
-      ).run('audit_' + crypto.randomUUID().slice(0, 8), localId, auditMsg);
+        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+         VALUES (?, 'TERMS_APPROVED_MEDIUM', 'invoice', ?, ?, ?, ?, 0, ?)`
+      ).run(
+        'audit_' + crypto.randomUUID().slice(0, 8),
+        localId,
+        JSON.stringify({ summaryText: auditMsg, providerUsed: ppInvoice?.providerUsed }),
+        realTime3,
+        simulatedTime3,
+        realTime3
+      );
 
       createdInvoices.push({
         id: localId,
@@ -468,10 +496,19 @@ export async function POST(req: NextRequest) {
 
       const providerTag = ` [Provider: ${ppDeposit?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
       const auditMsg = `Approved high-risk terms (40% deposit / 60% delivery) for ${projectName} (Project: ${projectId}). Sent deposit invoice ${depositInvNumber} ($${depositAmount}, PayPal: ${ppDepositId}). Created balance invoice ${deliveryInvNumber} ($${deliveryAmount}, PayPal: ${ppDeliveryId}) as DRAFT pending delivery.${providerTag}`;
+      const realTime4 = new Date().toISOString();
+      const simulatedTime4 = getSimulatedNow().toISOString();
       db.prepare(
-        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-         VALUES (?, 'TERMS_APPROVED_HIGH', 'project', ?, ?, CURRENT_TIMESTAMP)`
-      ).run('audit_' + crypto.randomUUID().slice(0, 8), projectId, auditMsg);
+        `INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+         VALUES (?, 'TERMS_APPROVED_HIGH', 'project', ?, ?, ?, ?, 0, ?)`
+      ).run(
+        'audit_' + crypto.randomUUID().slice(0, 8),
+        projectId,
+        JSON.stringify({ summaryText: auditMsg, providerUsed: ppDeposit?.providerUsed }),
+        realTime4,
+        simulatedTime4,
+        realTime4
+      );
 
       createdInvoices.push({
         id: localDepositId,

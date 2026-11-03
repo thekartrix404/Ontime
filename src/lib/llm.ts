@@ -198,6 +198,68 @@ function generateMockContent(prompt: string, config: Record<string, any>): any {
   // If JSON is requested (e.g. extraction)
   if (config.responseMimeType === 'application/json') {
     if (prompt.includes('extract') || prompt.includes('invoice') || prompt.includes('Invoice')) {
+      if (prompt.includes('Lagging') || prompt.includes('bob@lateinc.com') || prompt.includes('Bob Slow')) {
+        return {
+          text: JSON.stringify({
+            client_name: 'Bob Slow',
+            company: 'Lagging Dynamics Inc',
+            client_email: 'bob@lateinc.com',
+            currency: 'USD',
+            project_type: 'Digital Marketing Campaign',
+            line_items: [
+              {
+                description: 'Digital Marketing Campaign Strategy',
+                quantity: 1,
+                unit_price: 2000,
+              },
+              {
+                description: 'Custom Ad Creative Bundle',
+                quantity: 2,
+                unit_price: 500,
+              },
+            ],
+          }),
+        };
+      }
+
+      if (prompt.includes('Reliable') || prompt.includes('alice@reliablecorp.com') || prompt.includes('Alice Vance')) {
+        return {
+          text: JSON.stringify({
+            client_name: 'Alice Vance',
+            company: 'Reliable Solutions LLC',
+            client_email: 'alice@reliablecorp.com',
+            currency: 'USD',
+            project_type: 'Quarterly Web Infrastructure Maintenance',
+            line_items: [
+              {
+                description: 'Quarterly Web Infrastructure Maintenance',
+                quantity: 1,
+                unit_price: 1800,
+              },
+            ],
+          }),
+        };
+      }
+
+      if (prompt.includes('Horizons') || prompt.includes('claire@newhorizons.io') || prompt.includes('Claire Startup')) {
+        return {
+          text: JSON.stringify({
+            client_name: 'Claire Startup',
+            company: 'New Horizons Ltd',
+            client_email: 'claire@newhorizons.io',
+            currency: 'USD',
+            project_type: 'Brand Identity & Style Guide',
+            line_items: [
+              {
+                description: 'Brand Identity & Style Guide',
+                quantity: 1,
+                unit_price: 1500,
+              },
+            ],
+          }),
+        };
+      }
+
       if (prompt.includes('Wayne') || prompt.includes('2. Cloud')) {
         return {
           text: JSON.stringify({

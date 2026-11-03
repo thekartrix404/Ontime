@@ -139,6 +139,8 @@ export default function Home() {
   // Approval result
   const [approvedInvoices, setApprovedInvoices] = useState<InvoiceResult[] | null>(null);
   const [auditLogs, setAuditLogs] = useState<string[]>([]);
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
 
   const handleSelectSample = (sampleId: string) => {
     const found = SAMPLE_EMAILS.find((s) => s.id === sampleId);
@@ -147,6 +149,8 @@ export default function Home() {
       setDraft(null);
       setApprovedInvoices(null);
       setError(null);
+      setRetryAction(null);
+      setQuotaNotice(null);
       setIsEditing(false);
     }
   };
@@ -159,7 +163,9 @@ export default function Home() {
 
     setLoadingDraft(true);
     setError(null);
+    setRetryAction(null);
     setApprovedInvoices(null);
+    setQuotaNotice(null);
 
     try {
       const res = await fetch('/api/draft', {
@@ -170,37 +176,79 @@ export default function Home() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to generate invoice draft');
+        const errorText = String(data.error || 'Failed to generate invoice draft');
+        if (res.status === 429 || errorText.includes('429') || errorText.includes('quota') || errorText.includes('RESOURCE_EXHAUSTED')) {
+          setQuotaNotice('AI quota reached, using fallback');
+        }
+        throw new Error(errorText);
       }
 
       setDraft(data);
 
       // Populate editable fields
       const ext = data.extraction.data;
-      setEditClientName(ext.client_name || '');
-      setEditCompany(ext.company || '');
-      setEditClientEmail(ext.client_email || '');
-      setEditCurrency(ext.currency || 'USD');
-      setEditProjectType(ext.project_type || '');
-      setEditLineItems(ext.line_items || []);
+      if (ext) {
+        setEditClientName(ext.client_name || '');
+        setEditCompany(ext.company || '');
+        setEditClientEmail(ext.client_email || '');
+        setEditCurrency(ext.currency || 'USD');
+        setEditProjectType(ext.project_type || '');
+        setEditLineItems(ext.line_items || []);
+      }
 
-      // If missing fields, open edit mode automatically
-      if (data.extraction.missingFields && data.extraction.missingFields.length > 0) {
+      // Check if quota was hit or fallback was used
+      if (
+        data.extraction.error?.includes('429') ||
+        data.extraction.error?.includes('quota') ||
+        data.extraction.source === 'rule-fallback'
+      ) {
+        setQuotaNotice('AI quota reached, using fallback');
+      }
+
+      // If extraction failed or missing fields, open edit mode automatically
+      if (!data.extraction.success || (data.extraction.missingFields && data.extraction.missingFields.length > 0)) {
         setIsEditing(true);
       } else {
         setIsEditing(false);
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred while generating the draft.');
+      const msg = String(err.message || 'An error occurred while generating the draft.');
+      if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+        setError('AI quota reached, using fallback');
+        setQuotaNotice('AI quota reached, using fallback');
+      } else {
+        setError(msg);
+      }
+      setRetryAction(() => () => handleGenerateInvoice());
     } finally {
       setLoadingDraft(false);
     }
   };
 
+  // Validation for approval readiness
+  const currentEmail = isEditing ? editClientEmail : draft?.extraction.data.client_email;
+  const currentCurrency = isEditing ? editCurrency : draft?.extraction.data.currency;
+  const currentLineItems = isEditing ? editLineItems : draft?.extraction.data.line_items;
+
+  const isValidEmail = Boolean(currentEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(currentEmail.trim()));
+  const isValidCurrency = Boolean(currentCurrency && currentCurrency.trim().length > 0);
+  const hasValidLineItems = Boolean(
+    currentLineItems &&
+    currentLineItems.length > 0 &&
+    currentLineItems.every(
+      (item) =>
+        Boolean(item.description && item.description.trim().length > 0) &&
+        Number(item.unit_price) > 0 &&
+        Number(item.quantity) > 0
+    )
+  );
+  const isApproveReady = isValidEmail && isValidCurrency && hasValidLineItems;
+
   const handleApprove = async (termsMode: 'PROPOSED' | 'AS_IS') => {
     if (!draft) return;
     setApproving(true);
     setError(null);
+    setRetryAction(null);
 
     const clientEmail = isEditing ? editClientEmail : draft.extraction.data.client_email;
     const clientName = isEditing ? editClientName : draft.extraction.data.client_name;
@@ -209,8 +257,11 @@ export default function Home() {
     const projectType = isEditing ? editProjectType : draft.extraction.data.project_type;
     const lineItems = isEditing ? editLineItems : draft.extraction.data.line_items;
 
-    if (!clientEmail || !lineItems || lineItems.length === 0) {
-      setError('Client email and at least one line item are required before approval.');
+    if (!isApproveReady) {
+      setError(
+        'Approval blocked: invoice requires at least one line item with a positive unit price and real description, a valid client email, and a currency.'
+      );
+      setIsEditing(true);
       setApproving(false);
       return;
     }
@@ -239,7 +290,9 @@ export default function Home() {
       setApprovedInvoices(data.invoices);
       setAuditLogs(data.audit || []);
     } catch (err: any) {
-      setError(err.message || 'Failed to approve invoice.');
+      const msg = String(err.message || 'Failed to approve invoice.');
+      setError(msg);
+      setRetryAction(() => () => handleApprove(termsMode));
     } finally {
       setApproving(false);
     }
@@ -248,6 +301,7 @@ export default function Home() {
   const handleMarkDelivered = async (invoiceId: string) => {
     setDelivering(true);
     setError(null);
+    setRetryAction(null);
 
     try {
       const res = await fetch('/api/deliver', {
@@ -273,6 +327,7 @@ export default function Home() {
       }
     } catch (err: any) {
       setError(err.message || 'Failed to deliver final invoice.');
+      setRetryAction(() => () => handleMarkDelivered(invoiceId));
     } finally {
       setDelivering(false);
     }
@@ -334,9 +389,9 @@ export default function Home() {
 
       {/* Main Centered Container (Max Width 900px) */}
       <main className="flex-1 max-w-[900px] w-full mx-auto px-4 py-8 space-y-8">
-        {/* Error Banner */}
+        {/* Error Banner with Retry */}
         {error && (
-          <div className="bg-rose-950/80 border border-rose-800/90 text-rose-200 px-5 py-4 rounded-2xl flex items-start justify-between shadow-xl animate-in fade-in">
+          <div className="bg-rose-950/80 border border-rose-800/90 text-rose-200 px-5 py-4 rounded-2xl flex items-center justify-between shadow-xl animate-in fade-in gap-3">
             <div className="flex items-start gap-3">
               <span className="text-rose-400 text-lg leading-none mt-0.5">⚠️</span>
               <div>
@@ -344,9 +399,42 @@ export default function Home() {
                 <p className="text-xs text-rose-300 mt-1">{error}</p>
               </div>
             </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {retryAction && (
+                <button
+                  onClick={() => {
+                    const act = retryAction;
+                    setError(null);
+                    act();
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-rose-800 hover:bg-rose-700 text-white text-xs font-semibold shadow transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <span>Retry</span>
+                  <span>↺</span>
+                </button>
+              )}
+              <button
+                onClick={() => setError(null)}
+                className="text-rose-400 hover:text-rose-100 text-xl font-bold leading-none p-1 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Quota Notice Banner */}
+        {quotaNotice && !error && (
+          <div className="bg-amber-950/80 border border-amber-800/90 text-amber-200 px-5 py-3.5 rounded-2xl flex items-center justify-between shadow-xl animate-in fade-in">
+            <div className="flex items-center gap-2.5 text-xs font-medium">
+              <span className="text-base">⚡</span>
+              <span>
+                <strong>Quota Notice:</strong> AI quota reached, using fallback. Continuing with grounded deterministic rules.
+              </span>
+            </div>
             <button
-              onClick={() => setError(null)}
-              className="text-rose-400 hover:text-rose-100 text-xl font-bold leading-none p-1"
+              onClick={() => setQuotaNotice(null)}
+              className="text-amber-400 hover:text-amber-100 text-lg font-bold leading-none px-2 cursor-pointer"
             >
               ×
             </button>
@@ -701,21 +789,41 @@ export default function Home() {
               </span>
             </div>
 
+            {/* Warning if Approve is blocked */}
+            {!isApproveReady && (
+              <div className="bg-rose-950/70 border border-rose-800/80 text-rose-300 text-xs p-3.5 rounded-xl flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">⚠️</span>
+                  <span>
+                    <strong>Approval Blocked:</strong> An invoice requires at least one line item with a real description and positive unit price, a valid client email, and a currency.
+                  </span>
+                </div>
+                {!isEditing && (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="text-xs text-rose-200 hover:text-white underline font-semibold shrink-0 cursor-pointer"
+                  >
+                    Edit details ✎
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Large Clearly Separated Bottom Action Buttons */}
             <div className="border-t border-slate-800 pt-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-4">
               <button
                 id="send-as-is-btn"
                 onClick={() => handleApprove('AS_IS')}
-                disabled={approving}
-                className="order-2 sm:order-1 px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold transition border border-slate-700 disabled:opacity-50 cursor-pointer text-center"
+                disabled={approving || !isApproveReady}
+                className="order-2 sm:order-1 px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold transition border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-center"
               >
                 Send as-is
               </button>
               <button
                 id="approve-proposed-btn"
                 onClick={() => handleApprove('PROPOSED')}
-                disabled={approving}
-                className="order-1 sm:order-2 px-8 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-extrabold transition shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer text-center"
+                disabled={approving || !isApproveReady}
+                className="order-1 sm:order-2 px-8 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-extrabold transition shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-center"
               >
                 {approving ? (
                   <>

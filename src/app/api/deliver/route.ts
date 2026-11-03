@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getDb } from '@/lib/db';
 import { getPaymentProvider, ensureEnvLoaded } from '@/lib/paypal';
+import { getSimulatedNow } from '@/lib/clock';
 
 ensureEnvLoaded();
 
@@ -71,11 +72,20 @@ export async function POST(req: NextRequest) {
     // Write audit log entry in plain English
     const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(invoice.client_id) as any;
     const auditMsg = `Project delivered! Sent final balance invoice ${invoice.invoice_number} for $${invoice.amount} ${invoice.currency} to ${client?.name || 'client'} (${client?.email || ''}). PayPal ID: ${ppId}.${providerTag}`;
+    const realTime = new Date().toISOString();
+    const simulatedTime = getSimulatedNow().toISOString();
 
     db.prepare(
-      `INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-       VALUES (?, 'PROJECT_DELIVERED_INVOICE_SENT', 'invoice', ?, ?, CURRENT_TIMESTAMP)`
-    ).run('audit_' + crypto.randomUUID().slice(0, 8), invoice.id, auditMsg);
+      `INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+       VALUES (?, 'PROJECT_DELIVERED_INVOICE_SENT', 'invoice', ?, ?, ?, ?, 0, ?)`
+    ).run(
+      'audit_' + crypto.randomUUID().slice(0, 8),
+      invoice.id,
+      JSON.stringify({ summaryText: auditMsg, providerUsed: sendRes?.providerUsed }),
+      realTime,
+      simulatedTime,
+      realTime
+    );
 
     // Fetch PayPal representation to get fresh payer view link
     let payerViewUrl: string;

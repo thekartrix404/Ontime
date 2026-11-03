@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { recordPayment, ensureEnvLoaded } from '@/lib/paypal';
-import { getSimulatedNow } from '@/lib/clock';
+import { getSimulatedNow, computeDaysOverdue } from '@/lib/clock';
 
 ensureEnvLoaded();
 
@@ -70,8 +70,15 @@ export async function POST(req: Request) {
     const auditId = `audit_pay_${Date.now()}`;
     const clientName = invoice.client_name || invoice.company || 'Client';
     const providerUsed = paypalPaymentResult?.providerUsed || 'mock';
+    const realTime = new Date().toISOString();
+    const simulatedTime = simulatedNow.toISOString();
+    const daysOverdue = computeDaysOverdue(invoice.due_date, simulatedNow);
+
     const auditDetails = {
-      timestamp: simulatedNow.toISOString(),
+      timestamp: realTime,
+      realTime,
+      simulatedTime,
+      daysOverdue,
       action: 'PAYMENT_RECORDED',
       invoiceId,
       invoiceNumber: invoice.invoice_number,
@@ -83,12 +90,16 @@ export async function POST(req: Request) {
     };
 
     db.prepare(`
-      INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-      VALUES (?, 'PAYMENT_RECORDED', 'invoice', ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+      VALUES (?, 'PAYMENT_RECORDED', 'invoice', ?, ?, ?, ?, ?, ?)
     `).run(
       auditId,
       invoiceId,
-      JSON.stringify(auditDetails)
+      JSON.stringify(auditDetails),
+      realTime,
+      simulatedTime,
+      daysOverdue,
+      realTime
     );
 
     return NextResponse.json({

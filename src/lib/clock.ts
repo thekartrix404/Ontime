@@ -45,6 +45,23 @@ export function advanceSimulatedDays(days: number): Date {
 }
 
 /**
+ * Sets the simulated current time relative to an invoice's due date.
+ * relativeDays:
+ *  -2 = 2 days before due
+ *   5 = 5 days overdue
+ *  15 = 15 days overdue
+ *  30 = 30 days overdue
+ */
+export function setSimulatedRelativeToDueDate(dueDateStr: string, relativeDays: number): Date {
+  const [year, month, day] = dueDateStr.split('-').map(Number);
+  const dueUtc = Date.UTC(year, month - 1, day);
+  const targetUtc = dueUtc + relativeDays * 24 * 60 * 60 * 1000;
+  const targetDate = new Date(targetUtc);
+  setSimulatedNow(targetDate);
+  return targetDate;
+}
+
+/**
  * Resets the clock to the real current time.
  */
 export function resetClock(): void {
@@ -86,16 +103,24 @@ export function resetDemo(): void {
   resetClock();
   seedDatabase();
   const db = getDb();
+  const now = new Date();
+  const realTime = now.toISOString();
+  const simulatedTime = getSimulatedNow().toISOString();
   db.prepare(`
-    INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     `audit_reset_${Date.now()}`,
     'DEMO_RESET',
     'system',
     'clock',
-    'Demo reset: restored seed data, cleared demo artifacts, and reset simulated clock to current time.',
-    new Date().toISOString()
+    JSON.stringify({
+      summaryText: 'Demo reset: restored seed data, cleared demo artifacts, and reset simulated clock to current time.',
+    }),
+    realTime,
+    simulatedTime,
+    0,
+    realTime
   );
 }
 

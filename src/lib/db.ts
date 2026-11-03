@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
   entity_type TEXT,
   entity_id TEXT,
   details TEXT NOT NULL,
+  real_time TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  simulated_time TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  days_overdue INTEGER,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
 
@@ -125,6 +128,24 @@ export function getDb(): Database.Database {
 
     try {
       dbInstance.exec("ALTER TABLE approval_queue ADD COLUMN source TEXT NOT NULL DEFAULT 'gemini-live'");
+    } catch {
+      // Column already exists
+    }
+
+    try {
+      dbInstance.exec('ALTER TABLE audit_log ADD COLUMN real_time TEXT');
+    } catch {
+      // Column already exists
+    }
+
+    try {
+      dbInstance.exec('ALTER TABLE audit_log ADD COLUMN simulated_time TEXT');
+    } catch {
+      // Column already exists
+    }
+
+    try {
+      dbInstance.exec('ALTER TABLE audit_log ADD COLUMN days_overdue INTEGER');
     } catch {
       // Column already exists
     }

@@ -183,7 +183,7 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
         if (missingFields.includes('client_email') || missingFields.includes('line_items')) {
           return {
             success: false,
-            error: `Incomplete invoice data. Missing required fields: ${missingFields.join(', ')}`,
+            error: 'AI quota reached, using fallback. Incomplete invoice data: missing ' + missingFields.join(', '),
             missingFields,
             data: fallbackData,
             source: 'rule-fallback',
@@ -204,11 +204,17 @@ export async function extractInvoice(emailText: string): Promise<ExtractionResul
     }
   }
 
+  const partialData = fallbackExtract(emailText);
+  const missing: string[] = [];
+  if (!partialData.client_name) missing.push('client_name');
+  if (!partialData.client_email) missing.push('client_email');
+  if (!partialData.line_items || partialData.line_items.length === 0) missing.push('line_items');
+
   return {
     success: false,
-    error: `Invoice extraction failed: ${lastError?.message || 'Unknown error'}`,
-    missingFields: ['parsing_failed'],
-    data: null,
+    error: `Invoice extraction failed after retry (${lastError?.message || 'Gemini error'}). Showing manual edit form with partial fields prefilled.`,
+    missingFields: missing.length > 0 ? missing : ['manual_review_required'],
+    data: partialData,
     source: 'rule-fallback',
   };
 }

@@ -92,8 +92,8 @@ export async function GET() {
     const auditRaw = db.prepare(`
       SELECT *
       FROM audit_log
-      WHERE action IN ('GUARD_ALLOWED', 'GUARD_BLOCKED', 'USER_APPROVAL', 'USER_REJECTION', 'DEMO_RESET', 'PAYMENT_RECORDED')
-      ORDER BY created_at DESC
+      WHERE action IN ('GUARD_ALLOWED', 'GUARD_BLOCKED', 'GUARD_QUEUED', 'USER_APPROVAL', 'USER_REJECTION', 'DEMO_RESET', 'PAYMENT_RECORDED')
+      ORDER BY COALESCE(real_time, created_at) DESC
       LIMIT 25
     `).all() as any[];
 
@@ -105,15 +105,34 @@ export async function GET() {
         parsedDetails = { summaryText: row.details };
       }
 
+      const realTime = row.real_time || row.created_at;
+      const simulatedTime = row.simulated_time || (parsedDetails && parsedDetails.simulatedTime) || (parsedDetails && parsedDetails.timestamp) || realTime;
+      const daysOverdue = row.days_overdue !== null && row.days_overdue !== undefined
+        ? row.days_overdue
+        : (parsedDetails && typeof parsedDetails.daysOverdue === 'number' ? parsedDetails.daysOverdue : null);
+
+      let summaryText = parsedDetails.summaryText || row.details;
+      if (typeof summaryText === 'string' && summaryText.trim().startsWith('{')) {
+        try {
+          const inner = JSON.parse(summaryText);
+          summaryText = inner.summaryText || 'Agent activity logged';
+        } catch {
+          // ignore
+        }
+      }
+
       return {
         id: row.id,
         action: row.action,
         entityType: row.entity_type,
         entityId: row.entity_id,
-        timestamp: row.created_at,
+        timestamp: realTime,
+        realTime,
+        simulatedTime,
+        daysOverdue,
         details: parsedDetails,
-        summaryText: parsedDetails.summaryText || row.details,
-        decision: parsedDetails.decision || (row.action === 'GUARD_ALLOWED' ? 'allowed' : 'blocked'),
+        summaryText,
+        decision: parsedDetails.decision || (row.action === 'GUARD_ALLOWED' ? 'allowed' : row.action === 'GUARD_QUEUED' ? 'queued_review' : 'blocked'),
         tool: parsedDetails.tool || 'system',
         source: parsedDetails.source || (row.action.includes('GUARD') ? 'gemini-live' : undefined),
         providerUsed: parsedDetails.providerUsed,

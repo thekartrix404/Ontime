@@ -41,6 +41,7 @@ interface ApprovalItem {
   ruleBlocked: string;
   proposedLateFeePercent?: number;
   source?: string;
+  status?: string;
   createdAt: string;
 }
 
@@ -48,7 +49,10 @@ interface ActivityItem {
   id: string;
   action: string;
   timestamp: string;
-  decision: 'allowed' | 'blocked';
+  realTime?: string;
+  simulatedTime?: string;
+  daysOverdue?: number | null;
+  decision: 'allowed' | 'blocked' | 'queued_review';
   tool: string;
   summaryText: string;
   source?: string;
@@ -63,7 +67,13 @@ export default function DashboardPage() {
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [approvalQueue, setApprovalQueue] = useState<ApprovalItem[]>([]);
   const [agentActivity, setAgentActivity] = useState<ActivityItem[]>([]);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+    retry?: () => void;
+  } | null>(null);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
+  const [userSelectedStep, setUserSelectedStep] = useState<number | null>(null);
 
   const fetchData = async () => {
     try {
@@ -72,11 +82,24 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error('Failed to load dashboard data');
       const data = await res.json();
       setSimulatedDate(data.simulatedDate);
-      setInvoices(data.invoices || []);
+      const invs: InvoiceItem[] = data.invoices || [];
+      setInvoices(invs);
       setApprovalQueue(data.approvalQueue || []);
       setAgentActivity(data.agentActivity || []);
+
+      if (invs.length > 0) {
+        setSelectedInvoiceId((prev) => {
+          if (prev && invs.some((i) => i.id === prev)) return prev;
+          const openInv = invs.find((i) => i.status !== 'PAID' && i.status !== 'MARKED_AS_PAID');
+          return openInv ? openInv.id : invs[0].id;
+        });
+      }
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.message || 'Error loading dashboard' });
+      setNotification({
+        type: 'error',
+        message: err.message || 'Error loading dashboard',
+        retry: () => fetchData(),
+      });
     } finally {
       setLoading(false);
     }
@@ -105,7 +128,40 @@ export default function DashboardPage() {
       });
       await fetchData();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.message });
+      setNotification({
+        type: 'error',
+        message: err.message,
+        retry: () => handleAdvance(days),
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRelativeAdvance = async (invoiceId: string, relativeDays: number) => {
+    try {
+      setActionLoading(`rel-${relativeDays}`);
+      setNotification(null);
+      const res = await fetch('/api/agent/advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId, relativeDays }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to jump clock relative to invoice due date');
+
+      const decisionsCount = data.agentResult?.decisions?.length || 0;
+      setNotification({
+        type: 'success',
+        message: `Clock shifted (${data.description}): ${data.selectedInvoiceNumber} is now ${data.resultingDaysOverdue} days overdue (Simulated Date: ${data.simulatedDate}). Agent executed (${decisionsCount} actions).`,
+      });
+      await fetchData();
+    } catch (err: any) {
+      setNotification({
+        type: 'error',
+        message: err.message,
+        retry: () => handleRelativeAdvance(invoiceId, relativeDays),
+      });
     } finally {
       setActionLoading(null);
     }
@@ -147,7 +203,11 @@ export default function DashboardPage() {
       });
       await fetchData();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.message });
+      setNotification({
+        type: 'error',
+        message: err.message,
+        retry: () => handleMarkAsPaid(invoiceId, invoiceNumber),
+      });
     } finally {
       setActionLoading(null);
     }
@@ -170,7 +230,11 @@ export default function DashboardPage() {
       });
       await fetchData();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.message });
+      setNotification({
+        type: 'error',
+        message: err.message,
+        retry: () => handleApproveQueue(queueId),
+      });
     } finally {
       setActionLoading(null);
     }
@@ -193,11 +257,78 @@ export default function DashboardPage() {
       });
       await fetchData();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.message });
+      setNotification({
+        type: 'error',
+        message: err.message,
+        retry: () => handleRejectQueue(queueId),
+      });
     } finally {
       setActionLoading(null);
     }
   };
+
+  // Guided demo steps (checklist only, no automated execution)
+  // 1: paste, 2: approve, 3: jump +5, 4: jump +15 blocked, 5: approve queue, 6: mark paid
+  const computeAutoStep = (): number => {
+    if (invoices.length === 0) return 1;
+    const hasPendingQueue = approvalQueue.some((q) => q.status === 'PENDING');
+    if (hasPendingQueue) return 5;
+    const hasBlockedDecision = agentActivity.some((a) => a.decision === 'blocked');
+    if (hasBlockedDecision) return 5;
+    const hasNudgeSent = agentActivity.some((a) => a.decision === 'allowed');
+    if (hasNudgeSent) return 4;
+    const hasSentInvoice = invoices.some((i) => i.status === 'SENT');
+    if (hasSentInvoice) return 3;
+    const hasPaid = invoices.some((i) => i.status === 'PAID' || i.status === 'MARKED_AS_PAID');
+    if (hasPaid) return 6;
+    return 2;
+  };
+
+  const activeDemoStep = userSelectedStep !== null ? userSelectedStep : computeAutoStep();
+
+  const DEMO_STEPS = [
+    {
+      num: 1,
+      name: 'Paste',
+      title: 'Paste client email',
+      desc: 'Paste client email on Home to extract terms and risk score',
+      link: '/',
+    },
+    {
+      num: 2,
+      name: 'Approve',
+      title: 'Approve terms',
+      desc: 'Approve proposed terms (Net-14 or 40/60 split) to send invoice',
+      link: '/',
+    },
+    {
+      num: 3,
+      name: 'Jump +5',
+      title: 'Advance +5 days',
+      desc: 'Follow-up agent auto-sends friendly/nudge reminder via PayPal',
+    },
+    {
+      num: 4,
+      name: 'Jump +15 (blocked)',
+      title: 'Advance +15 days',
+      desc: 'Agent attempts firm reminder, BLOCKED by mandate guard and queued',
+    },
+    {
+      num: 5,
+      name: 'Approve queue',
+      title: 'Approve queue item',
+      desc: 'Review and approve intercepted firm reminder in the approval queue',
+    },
+    {
+      num: 6,
+      name: 'Mark paid',
+      title: 'Mark invoice paid',
+      desc: 'Record PayPal payment and inspect full plain-English audit log',
+    },
+  ];
+
+  const selectedInvoice = invoices.find((inv) => inv.id === selectedInvoiceId) || (invoices.length > 0 ? invoices[0] : null);
+  const selectedDaysOverdue = selectedInvoice ? selectedInvoice.daysOverdue : 0;
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans">
@@ -241,67 +372,232 @@ export default function DashboardPage() {
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
         {/* Simulated Clock & Time Travel Banner */}
-        <section className="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/60 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400">
-              <span>🕒 Simulated Clock Engine</span>
+        <section className="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/60 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+          {/* Row 1: Clock & Fixed Day Advances */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400">
+                <span>🕒 Simulated Clock Engine</span>
+              </div>
+              <div className="flex items-baseline gap-3">
+                <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-mono">
+                  {simulatedDate || 'Loading...'}
+                </span>
+                <span className="text-xs text-slate-400">
+                  Days overdue computed in code relative to this date
+                </span>
+              </div>
             </div>
-            <div className="flex items-baseline gap-3">
-              <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-mono">
-                {simulatedDate || 'Loading...'}
-              </span>
-              <span className="text-xs text-slate-400">
-                Days overdue computed in code relative to this date
-              </span>
+
+            {/* Fixed Jumps & Reset */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleAdvance(5)}
+                disabled={actionLoading !== null}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {actionLoading === '+5d' ? 'Running...' : '+5 days'}
+              </button>
+              <button
+                onClick={() => handleAdvance(15)}
+                disabled={actionLoading !== null}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {actionLoading === '+15d' ? 'Running...' : '+15 days'}
+              </button>
+              <button
+                onClick={() => handleAdvance(30)}
+                disabled={actionLoading !== null}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {actionLoading === '+30d' ? 'Running...' : '+30 days'}
+              </button>
+              <button
+                onClick={handleResetDemo}
+                disabled={actionLoading !== null}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/80 hover:text-rose-200 border border-slate-700 hover:border-rose-800 disabled:opacity-50 text-slate-300 font-medium text-xs transition-all cursor-pointer"
+              >
+                {actionLoading === 'reset' ? 'Resetting...' : 'Reset demo'}
+              </button>
             </div>
           </div>
 
-          {/* Time Travel & Demo Controls */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => handleAdvance(5)}
-              disabled={actionLoading !== null}
-              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              {actionLoading === '+5d' ? 'Running...' : '+5 days'}
-            </button>
-            <button
-              onClick={() => handleAdvance(15)}
-              disabled={actionLoading !== null}
-              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              {actionLoading === '+15d' ? 'Running...' : '+15 days'}
-            </button>
-            <button
-              onClick={() => handleAdvance(30)}
-              disabled={actionLoading !== null}
-              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              {actionLoading === '+30d' ? 'Running...' : '+30 days'}
-            </button>
-            <button
-              onClick={handleResetDemo}
-              disabled={actionLoading !== null}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/80 hover:text-rose-200 border border-slate-700 hover:border-rose-800 disabled:opacity-50 text-slate-300 font-medium text-xs transition-all cursor-pointer"
-            >
-              {actionLoading === 'reset' ? 'Resetting...' : 'Reset demo'}
-            </button>
+          {/* Row 2: Due-Date-Relative Time Travel */}
+          <div className="pt-3 border-t border-slate-800/80 flex flex-col xl:flex-row xl:items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-slate-300">Jump to (relative to due date):</span>
+              <select
+                value={selectedInvoice?.id || ''}
+                onChange={(e) => setSelectedInvoiceId(e.target.value)}
+                className="bg-slate-950 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 font-mono"
+              >
+                {invoices.map((inv) => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.invoiceNumber} - {inv.clientName} (Due: {inv.dueDate})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, -2)}
+                disabled={actionLoading !== null || !selectedInvoice}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+              >
+                {actionLoading === 'rel--2' ? 'Jumping...' : '2 days before due'}
+              </button>
+              <button
+                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 5)}
+                disabled={actionLoading !== null || !selectedInvoice}
+                className="px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/80 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+              >
+                {actionLoading === 'rel-5' ? 'Jumping...' : '5 days overdue'}
+              </button>
+              <button
+                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 15)}
+                disabled={actionLoading !== null || !selectedInvoice}
+                className="px-3 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/80 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+              >
+                {actionLoading === 'rel-15' ? 'Jumping...' : '15 days overdue'}
+              </button>
+              <button
+                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 30)}
+                disabled={actionLoading !== null || !selectedInvoice}
+                className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+              >
+                {actionLoading === 'rel-30' ? 'Jumping...' : '30 days overdue'}
+              </button>
+
+              {selectedInvoice && (
+                <div className="font-mono text-[11px] px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 flex items-center gap-1.5 ml-1">
+                  <span className="text-slate-400">Selected:</span>
+                  <strong className="text-white">{selectedInvoice.invoiceNumber}</strong>
+                  <span className="text-slate-500">|</span>
+                  <span
+                    className={
+                      selectedDaysOverdue > 0
+                        ? 'text-rose-400 font-bold'
+                        : selectedDaysOverdue === 0
+                        ? 'text-amber-400 font-bold'
+                        : 'text-slate-400'
+                    }
+                  >
+                    {selectedDaysOverdue > 0
+                      ? `+${selectedDaysOverdue}d overdue`
+                      : selectedDaysOverdue === 0
+                      ? 'Due today'
+                      : `${Math.abs(selectedDaysOverdue)}d before due`}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
-        {/* Notifications */}
+        {/* Notifications with Retry */}
         {notification && (
-          <div className={`p-4 rounded-xl border flex items-center justify-between text-sm shadow-lg animate-in fade-in ${
-            notification.type === 'success'
-              ? 'bg-emerald-950/80 border-emerald-800 text-emerald-200'
-              : 'bg-rose-950/80 border-rose-800 text-rose-200'
-          }`}>
+          <div
+            className={`p-4 rounded-xl border flex items-center justify-between text-sm shadow-lg animate-in fade-in gap-3 ${
+              notification.type === 'success'
+                ? 'bg-emerald-950/80 border-emerald-800 text-emerald-200'
+                : 'bg-rose-950/80 border-rose-800 text-rose-200'
+            }`}
+          >
             <span>{notification.message}</span>
-            <button onClick={() => setNotification(null)} className="text-lg leading-none px-2 font-bold opacity-70 hover:opacity-100">
-              ×
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {notification.retry && (
+                <button
+                  onClick={() => {
+                    const fn = notification.retry;
+                    setNotification(null);
+                    fn?.();
+                  }}
+                  className="px-3 py-1 rounded-lg bg-rose-800 hover:bg-rose-700 text-white font-semibold text-xs transition cursor-pointer"
+                >
+                  Retry ↺
+                </button>
+              )}
+              <button
+                onClick={() => setNotification(null)}
+                className="text-lg leading-none px-2 font-bold opacity-70 hover:opacity-100 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
           </div>
         )}
+
+        {/* Guided Demo Checklist Panel */}
+        <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">📋</span>
+              <h2 className="text-base font-bold text-white tracking-tight">Run Guided Demo</h2>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 font-medium font-mono">
+                Checklist
+              </span>
+            </div>
+            <span className="text-xs text-slate-400">
+              Step {activeDemoStep} of 6 in progress
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {DEMO_STEPS.map((step) => {
+              const isCurrent = step.num === activeDemoStep;
+              const isPast = step.num < activeDemoStep;
+
+              return (
+                <div
+                  key={step.num}
+                  onClick={() => setUserSelectedStep(step.num)}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                    isCurrent
+                      ? 'bg-indigo-950/70 border-indigo-500 shadow-md shadow-indigo-950 ring-1 ring-indigo-500'
+                      : isPast
+                      ? 'bg-slate-950/60 border-emerald-900/40 text-slate-400'
+                      : 'bg-slate-950/40 border-slate-800/80 text-slate-500 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-bold text-indigo-400">Step 0{step.num}</span>
+                      {isCurrent ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-extrabold uppercase tracking-wider animate-pulse">
+                          Current
+                        </span>
+                      ) : isPast ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
+                          Done ✓
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-600 font-mono">Pending</span>
+                      )}
+                    </div>
+                    <p className={`text-xs font-bold ${isCurrent ? 'text-white' : isPast ? 'text-slate-300' : 'text-slate-400'}`}>
+                      {step.title}
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-slate-400">
+                      {step.desc}
+                    </p>
+                  </div>
+
+                  {step.link && (
+                    <div className="pt-2">
+                      <Link
+                        href={step.link}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-medium"
+                      >
+                        Open {step.title} →
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
         {/* Approval Queue Panel */}
         <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
@@ -496,25 +792,57 @@ export default function DashboardPage() {
               </div>
             ) : (
               agentActivity.slice(0, 10).map((act) => {
-                const isAllowed = act.decision === 'allowed';
+                const isAllowed = act.decision === 'allowed' || act.action === 'GUARD_ALLOWED';
+                const isBlocked = act.decision === 'blocked' || act.action === 'GUARD_BLOCKED';
+                const isQueued = act.decision === 'queued_review' || act.action === 'GUARD_QUEUED';
+
+                const realTimeStr = act.realTime
+                  ? act.realTime.replace('T', ' ').substring(0, 19)
+                  : act.timestamp.replace('T', ' ').substring(0, 19);
+
+                const daysOverdueNum = typeof act.daysOverdue === 'number' ? act.daysOverdue : null;
+                const daysOverdueText = daysOverdueNum !== null
+                  ? `Day ${daysOverdueNum >= 0 ? '+' + daysOverdueNum : daysOverdueNum}`
+                  : null;
+
+                const simDateText = act.simulatedTime
+                  ? act.simulatedTime.substring(0, 10)
+                  : null;
+
+                // Ensure summaryText is strictly plain English and never raw JSON
+                let cleanSummary = act.summaryText;
+                if (!cleanSummary || (typeof cleanSummary === 'string' && cleanSummary.trim().startsWith('{'))) {
+                  if (act.details?.summaryText) {
+                    cleanSummary = act.details.summaryText;
+                  } else {
+                    cleanSummary = `Activity logged: ${act.action}`;
+                  }
+                }
+
                 return (
                   <div
                     key={act.id}
-                    className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-xs"
                   >
                     <div className="flex items-start gap-3 flex-1">
-                      <span
-                        className={`px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase border shrink-0 mt-0.5 ${
-                          isAllowed
-                            ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                            : 'bg-rose-950 text-rose-300 border-rose-800'
-                        }`}
-                      >
-                        {isAllowed ? 'ALLOWED' : 'BLOCKED'}
-                      </span>
-                      <div className="space-y-0.5">
+                      {isAllowed && (
+                        <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase border shrink-0 mt-0.5 bg-emerald-950 text-emerald-300 border-emerald-800">
+                          ALLOWED
+                        </span>
+                      )}
+                      {isBlocked && (
+                        <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase border shrink-0 mt-0.5 bg-rose-950 text-rose-300 border-rose-800">
+                          BLOCKED
+                        </span>
+                      )}
+                      {isQueued && (
+                        <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase border shrink-0 mt-0.5 bg-amber-950 text-amber-300 border-amber-700">
+                          QUEUED FOR REVIEW
+                        </span>
+                      )}
+                      <div className="space-y-1.5 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="text-slate-200 font-medium">{act.summaryText}</p>
+                          <p className="text-slate-200 font-medium text-xs sm:text-sm">{cleanSummary}</p>
                           {act.source && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-800 text-indigo-300 border border-slate-700">
                               source: {act.source}
@@ -527,15 +855,33 @@ export default function DashboardPage() {
                           )}
                         </div>
                         {act.details?.ruleApplied && (
-                          <p className="text-[11px] text-slate-400">
+                          <p className="text-[11px] text-amber-400 font-mono">
                             🛡️ {act.details.ruleApplied}
                           </p>
+                        )}
+                        {/* Collapsed details section */}
+                        {act.details && (
+                          <details className="mt-1.5 text-slate-400 font-mono text-[10px]">
+                            <summary className="cursor-pointer text-indigo-400 hover:text-indigo-300 select-none">
+                              View details
+                            </summary>
+                            <pre className="mt-1 p-2 rounded bg-slate-900/90 border border-slate-800 text-slate-300 overflow-x-auto text-[10px]">
+                              {typeof act.details === 'string' ? act.details : JSON.stringify(act.details, null, 2)}
+                            </pre>
+                          </details>
                         )}
                       </div>
                     </div>
 
-                    <div className="text-right text-[11px] text-slate-500 shrink-0 font-mono">
-                      {act.timestamp.replace('T', ' ').substring(0, 19)}
+                    <div className="text-right text-[11px] text-slate-400 shrink-0 font-mono space-y-0.5">
+                      <div className="text-slate-300 font-semibold">
+                        {realTimeStr}
+                      </div>
+                      {(daysOverdueText || simDateText) && (
+                        <div className="text-indigo-400 text-[10px]">
+                          {daysOverdueText} ({simDateText})
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

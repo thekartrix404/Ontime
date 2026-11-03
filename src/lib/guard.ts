@@ -1,7 +1,7 @@
 import { mandate } from './mandate';
 import { getDb } from './db';
 import { remindInvoice, ensureEnvLoaded } from './paypal';
-import { computeDaysOverdue } from './clock';
+import { computeDaysOverdue, getSimulatedNow } from './clock';
 import { LlmSource } from './llm';
 
 ensureEnvLoaded();
@@ -13,9 +13,11 @@ function generateUniqueId(prefix: string): string {
 export interface GuardDecision {
   id: string;
   timestamp: string;
+  realTime?: string;
+  simulatedTime?: string;
   tool: string;
   args: Record<string, any>;
-  decision: 'allowed' | 'blocked';
+  decision: 'allowed' | 'blocked' | 'queued_review';
   ruleApplied: string;
   approvedBy: 'auto' | 'user' | 'none';
   invoiceId: string;
@@ -64,7 +66,7 @@ export async function executeGuardedTool(
   const invoiceNumber = invoiceRow.invoice_number;
   const amount = invoiceRow.amount;
 
-  let decision: 'allowed' | 'blocked' = 'blocked';
+  let decision: 'allowed' | 'blocked' | 'queued_review' = 'blocked';
   let ruleApplied = '';
   let approvedBy: 'auto' | 'user' | 'none' = 'none';
   let summaryText = '';
@@ -127,10 +129,10 @@ export async function executeGuardedTool(
 
   } else if (tool === 'draft_escalation') {
     const tone = (args.tone || 'formal').toLowerCase();
-    decision = 'blocked';
-    ruleApplied = `Rule 'escalations require review': draft_escalation never auto-sends and must be human reviewed`;
+    decision = 'queued_review';
+    ruleApplied = `Rule 'escalations require review': draft_escalation never auto-sends and is queued for human review`;
     approvedBy = 'none';
-    summaryText = `Day ${daysOverdue}: the agent drafted an escalation for ${clientName} (${tone} tone); placed into your approval queue per mandate rule.`;
+    summaryText = `Day ${daysOverdue}: the agent drafted an escalation for ${clientName} (${tone} tone); queued for human review per mandate rule.`;
 
     // Save to approval queue with source
     const queueId = generateUniqueId('q');
@@ -152,10 +154,10 @@ export async function executeGuardedTool(
       approvedBy = 'none';
       summaryText = `Day ${daysOverdue}: the agent proposed a ${percent}% late fee for ${clientName}; blocked by your rule 'max late fee ${mandate.maxLateFeePercent}%'.`;
     } else {
-      decision = 'blocked';
+      decision = 'queued_review';
       ruleApplied = `Rule 'late fee proposal requires approval': proposed ${percent}% late fee saved for review`;
       approvedBy = 'none';
-      summaryText = `Day ${daysOverdue}: the agent proposed a ${percent}% late fee ($${((Number(amount) * percent) / 100).toFixed(2)}) for ${clientName}; placed into your approval queue.`;
+      summaryText = `Day ${daysOverdue}: the agent proposed a ${percent}% late fee ($${((Number(amount) * percent) / 100).toFixed(2)}) for ${clientName}; queued for human review.`;
 
       const queueId = generateUniqueId('q');
       db.prepare(`
@@ -173,10 +175,15 @@ export async function executeGuardedTool(
     }
   }
 
+  const realTime = timestamp;
+  const simulatedTime = getSimulatedNow().toISOString();
+
   // Record audit row
   const guardDecisionObj: GuardDecision = {
     id: decisionId,
     timestamp,
+    realTime,
+    simulatedTime,
     tool,
     args,
     decision,
@@ -194,16 +201,26 @@ export async function executeGuardedTool(
     error: executionError,
   };
 
+  const actionName =
+    decision === 'allowed'
+      ? 'GUARD_ALLOWED'
+      : decision === 'queued_review'
+      ? 'GUARD_QUEUED'
+      : 'GUARD_BLOCKED';
+
   db.prepare(`
-    INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     decisionId,
-    decision === 'allowed' ? 'GUARD_ALLOWED' : 'GUARD_BLOCKED',
+    actionName,
     'invoice',
     invoiceId,
     JSON.stringify(guardDecisionObj),
-    timestamp
+    realTime,
+    simulatedTime,
+    daysOverdue,
+    realTime
   );
 
   return guardDecisionObj;
@@ -215,7 +232,7 @@ export async function executeGuardedTool(
 export async function approveQueueItem(queueId: string): Promise<any> {
   const db = getDb();
   const item = db.prepare(`
-    SELECT q.*, i.paypal_invoice_id, i.invoice_number, i.amount, c.name as client_name
+    SELECT q.*, i.paypal_invoice_id, i.invoice_number, i.amount, i.due_date, c.name as client_name
     FROM approval_queue q
     JOIN invoices i ON i.id = q.invoice_id
     JOIN clients c ON c.id = i.client_id
@@ -255,10 +272,17 @@ export async function approveQueueItem(queueId: string): Promise<any> {
     WHERE invoice_id = ? AND message = ?
   `).run(item.invoice_id, item.message);
 
+  const realTime = new Date().toISOString();
+  const simulatedTime = getSimulatedNow().toISOString();
+  const daysOverdue = item.due_date ? computeDaysOverdue(item.due_date) : 0;
+
   // Log audit row with approved_by=user and providerUsed
   const auditId = `audit_appr_${Date.now()}`;
   const details = {
-    timestamp: new Date().toISOString(),
+    timestamp: realTime,
+    realTime,
+    simulatedTime,
+    daysOverdue,
     tool: item.tool,
     action: 'USER_APPROVAL',
     approvedBy: 'user',
@@ -270,15 +294,18 @@ export async function approveQueueItem(queueId: string): Promise<any> {
   };
 
   db.prepare(`
-    INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     auditId,
     'USER_APPROVAL',
     'invoice',
     item.invoice_id,
     JSON.stringify(details),
-    details.timestamp
+    realTime,
+    simulatedTime,
+    daysOverdue,
+    realTime
   );
 
   return { success: true, queueId, approvedBy: 'user', providerUsed };
@@ -313,9 +340,16 @@ export function rejectQueueItem(queueId: string): any {
     WHERE invoice_id = ? AND message = ?
   `).run(item.invoice_id, item.message);
 
+  const realTime = new Date().toISOString();
+  const simulatedTime = getSimulatedNow().toISOString();
+  const daysOverdue = item.due_date ? computeDaysOverdue(item.due_date) : 0;
+
   const auditId = `audit_rej_${Date.now()}`;
   const details = {
-    timestamp: new Date().toISOString(),
+    timestamp: realTime,
+    realTime,
+    simulatedTime,
+    daysOverdue,
     tool: item.tool,
     action: 'USER_REJECTION',
     approvedBy: 'user',
@@ -325,15 +359,18 @@ export function rejectQueueItem(queueId: string): any {
   };
 
   db.prepare(`
-    INSERT INTO audit_log (id, action, entity_type, entity_id, details, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     auditId,
     'USER_REJECTION',
     'invoice',
     item.invoice_id,
     JSON.stringify(details),
-    details.timestamp
+    realTime,
+    simulatedTime,
+    daysOverdue,
+    realTime
   );
 
   return { success: true, queueId, status: 'REJECTED' };
