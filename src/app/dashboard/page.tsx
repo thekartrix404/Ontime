@@ -2,6 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { HeaderBadges } from '@/components/HeaderBadges';
+
+interface DemoEvents {
+  draftCreated: boolean;
+  termsApproved: boolean;
+  guardAllowed: boolean;
+  guardBlocked: boolean;
+  userApproval: boolean;
+  paymentRecorded: boolean;
+}
 
 interface InvoiceItem {
   id: string;
@@ -74,6 +84,14 @@ export default function DashboardPage() {
   } | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
   const [userSelectedStep, setUserSelectedStep] = useState<number | null>(null);
+  const [demoEvents, setDemoEvents] = useState<DemoEvents>({
+    draftCreated: false,
+    termsApproved: false,
+    guardAllowed: false,
+    guardBlocked: false,
+    userApproval: false,
+    paymentRecorded: false,
+  });
 
   const fetchData = async () => {
     try {
@@ -86,13 +104,21 @@ export default function DashboardPage() {
       setInvoices(invs);
       setApprovalQueue(data.approvalQueue || []);
       setAgentActivity(data.agentActivity || []);
+      if (data.demoEvents) {
+        setDemoEvents(data.demoEvents);
+      }
 
-      if (invs.length > 0) {
+      // Default relative jump selection to the newest open invoice (SENT, UNPAID, PARTIALLY_PAID)
+      const openInvs = invs.filter((i) =>
+        ['SENT', 'UNPAID', 'PARTIALLY_PAID'].includes(i.status.toUpperCase())
+      );
+      if (openInvs.length > 0) {
         setSelectedInvoiceId((prev) => {
-          if (prev && invs.some((i) => i.id === prev)) return prev;
-          const openInv = invs.find((i) => i.status !== 'PAID' && i.status !== 'MARKED_AS_PAID');
-          return openInv ? openInv.id : invs[0].id;
+          if (prev && openInvs.some((i) => i.id === prev)) return prev;
+          return openInvs[0].id;
         });
+      } else {
+        setSelectedInvoiceId('');
       }
     } catch (err: any) {
       setNotification({
@@ -267,21 +293,22 @@ export default function DashboardPage() {
     }
   };
 
-  // Guided demo steps (checklist only, no automated execution)
-  // 1: paste, 2: approve, 3: jump +5, 4: jump +15 blocked, 5: approve queue, 6: mark paid
+  // Guided demo steps - Done state comes strictly from real audit events
+  const isStep1Done = Boolean(demoEvents.draftCreated);
+  const isStep2Done = Boolean(demoEvents.termsApproved);
+  const isStep3Done = Boolean(demoEvents.guardAllowed);
+  const isStep4Done = Boolean(demoEvents.guardBlocked);
+  const isStep5Done = Boolean(demoEvents.userApproval);
+  const isStep6Done = Boolean(demoEvents.paymentRecorded);
+
   const computeAutoStep = (): number => {
-    if (invoices.length === 0) return 1;
-    const hasPendingQueue = approvalQueue.some((q) => q.status === 'PENDING');
-    if (hasPendingQueue) return 5;
-    const hasBlockedDecision = agentActivity.some((a) => a.decision === 'blocked');
-    if (hasBlockedDecision) return 5;
-    const hasNudgeSent = agentActivity.some((a) => a.decision === 'allowed');
-    if (hasNudgeSent) return 4;
-    const hasSentInvoice = invoices.some((i) => i.status === 'SENT');
-    if (hasSentInvoice) return 3;
-    const hasPaid = invoices.some((i) => i.status === 'PAID' || i.status === 'MARKED_AS_PAID');
-    if (hasPaid) return 6;
-    return 2;
+    if (!isStep1Done) return 1;
+    if (!isStep2Done) return 2;
+    if (!isStep3Done) return 3;
+    if (!isStep4Done) return 4;
+    if (!isStep5Done) return 5;
+    if (!isStep6Done) return 6;
+    return 6;
   };
 
   const activeDemoStep = userSelectedStep !== null ? userSelectedStep : computeAutoStep();
@@ -293,6 +320,7 @@ export default function DashboardPage() {
       title: 'Paste client email',
       desc: 'Paste client email on Home to extract terms and risk score',
       link: '/',
+      isDone: isStep1Done,
     },
     {
       num: 2,
@@ -300,34 +328,43 @@ export default function DashboardPage() {
       title: 'Approve terms',
       desc: 'Approve proposed terms (Net-14 or 40/60 split) to send invoice',
       link: '/',
+      isDone: isStep2Done,
     },
     {
       num: 3,
       name: 'Jump +5',
       title: 'Advance +5 days',
       desc: 'Follow-up agent auto-sends friendly/nudge reminder via PayPal',
+      isDone: isStep3Done,
     },
     {
       num: 4,
       name: 'Jump +15 (blocked)',
       title: 'Advance +15 days',
       desc: 'Agent attempts firm reminder, BLOCKED by mandate guard and queued',
+      isDone: isStep4Done,
     },
     {
       num: 5,
       name: 'Approve queue',
       title: 'Approve queue item',
       desc: 'Review and approve intercepted firm reminder in the approval queue',
+      isDone: isStep5Done,
     },
     {
       num: 6,
       name: 'Mark paid',
       title: 'Mark invoice paid',
       desc: 'Record PayPal payment and inspect full plain-English audit log',
+      isDone: isStep6Done,
     },
   ];
 
-  const selectedInvoice = invoices.find((inv) => inv.id === selectedInvoiceId) || (invoices.length > 0 ? invoices[0] : null);
+  // Open invoices for relative-jump dropdown: only SENT, UNPAID, PARTIALLY_PAID
+  const openInvoices = invoices.filter((inv) =>
+    ['SENT', 'UNPAID', 'PARTIALLY_PAID'].includes(inv.status.toUpperCase())
+  );
+  const selectedInvoice = openInvoices.find((inv) => inv.id === selectedInvoiceId) || (openInvoices.length > 0 ? openInvoices[0] : null);
   const selectedDaysOverdue = selectedInvoice ? selectedInvoice.daysOverdue : 0;
 
   return (
@@ -361,10 +398,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-3 py-1.5 rounded-full font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              PayPal Sandbox Active
-            </span>
+            <HeaderBadges />
           </div>
         </div>
       </header>
@@ -429,47 +463,58 @@ export default function DashboardPage() {
               <select
                 value={selectedInvoice?.id || ''}
                 onChange={(e) => setSelectedInvoiceId(e.target.value)}
-                className="bg-slate-950 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 font-mono"
+                disabled={openInvoices.length === 0}
+                className="bg-slate-950 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 font-mono disabled:opacity-50"
               >
-                {invoices.map((inv) => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.invoiceNumber} - {inv.clientName} (Due: {inv.dueDate})
-                  </option>
-                ))}
+                {openInvoices.length === 0 ? (
+                  <option value="">No open invoices</option>
+                ) : (
+                  openInvoices.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.invoiceNumber} - {inv.clientName} (Due: {inv.dueDate})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, -2)}
-                disabled={actionLoading !== null || !selectedInvoice}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
               >
                 {actionLoading === 'rel--2' ? 'Jumping...' : '2 days before due'}
               </button>
               <button
                 onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 5)}
-                disabled={actionLoading !== null || !selectedInvoice}
-                className="px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/80 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
+                className="px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/80 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
               >
                 {actionLoading === 'rel-5' ? 'Jumping...' : '5 days overdue'}
               </button>
               <button
                 onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 15)}
-                disabled={actionLoading !== null || !selectedInvoice}
-                className="px-3 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/80 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
+                className="px-3 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/80 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
               >
                 {actionLoading === 'rel-15' ? 'Jumping...' : '15 days overdue'}
               </button>
               <button
                 onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 30)}
-                disabled={actionLoading !== null || !selectedInvoice}
-                className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 disabled:opacity-50 text-xs font-medium transition cursor-pointer"
+                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
+                className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
               >
                 {actionLoading === 'rel-30' ? 'Jumping...' : '30 days overdue'}
               </button>
 
-              {selectedInvoice && (
+              {openInvoices.length === 0 && (
+                <span className="text-amber-400 text-xs italic font-medium ml-1">
+                  ⚠️ No open invoices available for time travel
+                </span>
+              )}
+
+              {selectedInvoice && openInvoices.length > 0 && (
                 <div className="font-mono text-[11px] px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 flex items-center gap-1.5 ml-1">
                   <span className="text-slate-400">Selected:</span>
                   <strong className="text-white">{selectedInvoice.invoiceNumber}</strong>
@@ -545,37 +590,37 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {DEMO_STEPS.map((step) => {
-              const isCurrent = step.num === activeDemoStep;
-              const isPast = step.num < activeDemoStep;
+              const isDone = Boolean(step.isDone);
+              const isCurrent = step.num === activeDemoStep && !isDone;
 
               return (
                 <div
                   key={step.num}
                   onClick={() => setUserSelectedStep(step.num)}
                   className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                    isCurrent
+                    isDone
+                      ? 'bg-slate-950/60 border-emerald-900/60 text-slate-300'
+                      : isCurrent
                       ? 'bg-indigo-950/70 border-indigo-500 shadow-md shadow-indigo-950 ring-1 ring-indigo-500'
-                      : isPast
-                      ? 'bg-slate-950/60 border-emerald-900/40 text-slate-400'
                       : 'bg-slate-950/40 border-slate-800/80 text-slate-500 hover:border-slate-700'
                   }`}
                 >
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-mono font-bold text-indigo-400">Step 0{step.num}</span>
-                      {isCurrent ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-extrabold uppercase tracking-wider animate-pulse">
-                          Current
-                        </span>
-                      ) : isPast ? (
+                      {isDone ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
                           Done ✓
+                        </span>
+                      ) : isCurrent ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-extrabold uppercase tracking-wider animate-pulse">
+                          Current
                         </span>
                       ) : (
                         <span className="text-[10px] text-slate-600 font-mono">Pending</span>
                       )}
                     </div>
-                    <p className={`text-xs font-bold ${isCurrent ? 'text-white' : isPast ? 'text-slate-300' : 'text-slate-400'}`}>
+                    <p className={`text-xs font-bold ${isDone ? 'text-emerald-300' : isCurrent ? 'text-white' : 'text-slate-400'}`}>
                       {step.title}
                     </p>
                     <p className="text-[11px] leading-relaxed text-slate-400">
@@ -583,7 +628,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
 
-                  {step.link && (
+                  {step.link && !isDone && (
                     <div className="pt-2">
                       <Link
                         href={step.link}

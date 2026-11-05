@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { HeaderBadges } from '@/components/HeaderBadges';
 
 interface LineItem {
   description: string;
@@ -379,10 +380,7 @@ export default function Home() {
             </nav>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className="flex items-center gap-2 text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-3 py-1.5 rounded-full font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              PayPal Sandbox Active
-            </span>
+            <HeaderBadges />
           </div>
         </div>
       </header>

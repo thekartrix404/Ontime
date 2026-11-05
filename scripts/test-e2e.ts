@@ -19,8 +19,24 @@ async function runE2ETests() {
   const { POST: advancePost } = await import('../src/app/api/agent/advance/route');
   const { POST: queueApprovePost } = await import('../src/app/api/agent/queue/approve/route');
   const { POST: payPost } = await import('../src/app/api/invoices/pay/route');
+  const { GET: statusGet } = await import('../src/app/api/status/route');
+  const { GET: dashboardGet } = await import('../src/app/api/dashboard/data/route');
+  const { GET: auditGet } = await import('../src/app/api/audit/data/route');
 
   const db = getDb();
+
+  // 0. Status API check (no secrets, proper modes)
+  console.log('--- STEP 0: Check /api/status Endpoint ---');
+  const statusRes = await statusGet();
+  const statusData = await statusRes.json();
+  console.log('Status Response:', statusData);
+  if (!statusData.paypalMode || !statusData.llmMode) {
+    throw new Error('Expected paypalMode and llmMode in /api/status');
+  }
+  if ((statusData as any).GEMINI_API_KEY || (statusData as any).PAYPAL_SECRET || (statusData as any).PAYPAL_CLIENT_ID) {
+    throw new Error('SECURITY VIOLATION: Secrets exposed in /api/status!');
+  }
+  console.log('✅ Step 0 Passed: /api/status is clean and safe!\n');
 
   // 1. Reset demo state
   console.log('--- STEP 1: Reset Demo ---');
@@ -289,6 +305,67 @@ Bob`;
   if (!userApprovalLog.details.includes('User manually approved queued')) {
     throw new Error('USER_APPROVAL log missing plain-English approval narrative');
   }
+
+  // 8. Assert Agent Activity panel lists guard decisions only & Dashboard demoEvents are complete
+  console.log('\n--- STEP 8: Verify Dashboard Activity & Guided Demo Events ---');
+  const dashRes = await dashboardGet();
+  const dashData = await dashRes.json();
+  console.log('Dashboard agentActivity count:', dashData.agentActivity?.length);
+  console.log('Dashboard demoEvents:', dashData.demoEvents);
+
+  for (const act of dashData.agentActivity) {
+    if (!act.action.startsWith('GUARD_')) {
+      throw new Error(`Agent activity contains non-guard action: ${act.action}`);
+    }
+    if (!['allowed', 'blocked', 'queued_review'].includes(act.decision)) {
+      throw new Error(`Invalid decision in agent activity: ${act.decision}`);
+    }
+  }
+  console.log('✅ Agent activity strictly contains guard decisions only!');
+
+  if (!dashData.demoEvents?.draftCreated) throw new Error('demoEvents.draftCreated is false');
+  if (!dashData.demoEvents?.termsApproved) throw new Error('demoEvents.termsApproved is false');
+  if (!dashData.demoEvents?.guardAllowed) throw new Error('demoEvents.guardAllowed is false');
+  if (!dashData.demoEvents?.guardBlocked) throw new Error('demoEvents.guardBlocked is false');
+  if (!dashData.demoEvents?.userApproval) throw new Error('demoEvents.userApproval is false');
+  if (!dashData.demoEvents?.paymentRecorded) throw new Error('demoEvents.paymentRecorded is false');
+  console.log('✅ All 6 demo step events confirmed from real audit entries!');
+
+  // 9. Verify /api/audit/data badges
+  console.log('\n--- STEP 9: Verify /api/audit/data Badges ---');
+  const auditRes = await auditGet();
+  const auditData = await auditRes.json();
+  const auditLogs = auditData.logs || [];
+
+  for (const log of auditLogs) {
+    if (log.action === 'GUARD_ALLOWED') {
+      if (log.badgeType !== 'allowed') throw new Error(`Expected allowed badge for GUARD_ALLOWED, got ${log.badgeType}`);
+    } else if (log.action === 'GUARD_BLOCKED') {
+      if (log.badgeType !== 'blocked') throw new Error(`Expected blocked badge for GUARD_BLOCKED, got ${log.badgeType}`);
+    } else if (log.action === 'GUARD_QUEUED') {
+      if (log.badgeType !== 'queued_review') throw new Error(`Expected queued_review badge for GUARD_QUEUED, got ${log.badgeType}`);
+    } else if (log.action === 'USER_APPROVAL' || log.action === 'USER_REJECTION') {
+      if (log.badgeType !== 'user_action') throw new Error(`Expected user_action badge for ${log.action}, got ${log.badgeType}`);
+    } else if (['DEMO_RESET', 'DATABASE_SEEDED', 'PAYMENT_RECORDED'].includes(log.action) || log.action.startsWith('TERMS_APPROVED')) {
+      if (log.badgeType !== 'event') throw new Error(`Expected event badge for ${log.action}, got ${log.badgeType}`);
+    }
+  }
+  console.log('✅ Audit badges properly categorized: ALLOWED, BLOCKED, QUEUED FOR REVIEW, USER ACTION, EVENT!');
+
+  // 10. Verify Reset Demo Clears All Steps
+  console.log('\n--- STEP 10: Verify Reset Demo Clears All Steps ---');
+  await resetPost();
+  const postResetDashRes = await dashboardGet();
+  const postResetDashData = await postResetDashRes.json();
+  console.log('Post-reset demoEvents:', postResetDashData.demoEvents);
+
+  if (postResetDashData.demoEvents?.draftCreated) throw new Error('draftCreated should be cleared after reset');
+  if (postResetDashData.demoEvents?.termsApproved) throw new Error('termsApproved should be cleared after reset');
+  if (postResetDashData.demoEvents?.guardAllowed) throw new Error('guardAllowed should be cleared after reset');
+  if (postResetDashData.demoEvents?.guardBlocked) throw new Error('guardBlocked should be cleared after reset');
+  if (postResetDashData.demoEvents?.userApproval) throw new Error('userApproval should be cleared after reset');
+  if (postResetDashData.demoEvents?.paymentRecorded) throw new Error('paymentRecorded should be cleared after reset');
+  console.log('✅ Reset demo confirmed to clear all guided demo steps!');
 
   console.log('\n====================================================');
   console.log('🎉 ALL TASK 7 E2E HARDENING & GUIDED TESTS PASSED!');

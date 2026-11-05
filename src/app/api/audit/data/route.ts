@@ -36,6 +36,19 @@ export async function GET() {
         }
       }
 
+      let decision: 'allowed' | 'blocked' | 'queued_review' | undefined = undefined;
+      if (r.action === 'GUARD_ALLOWED' || (r.action.startsWith('GUARD_') && parsed.decision === 'allowed')) {
+        decision = 'allowed';
+      } else if (r.action === 'GUARD_QUEUED' || (r.action.startsWith('GUARD_') && parsed.decision === 'queued_review')) {
+        decision = 'queued_review';
+      } else if (r.action === 'GUARD_BLOCKED' || (r.action.startsWith('GUARD_') && parsed.decision === 'blocked')) {
+        decision = 'blocked';
+      }
+
+      const isUserAction = r.action === 'USER_APPROVAL' || r.action === 'USER_REJECTION';
+      const badgeType: 'allowed' | 'blocked' | 'queued_review' | 'user_action' | 'event' =
+        decision ? decision : isUserAction ? 'user_action' : 'event';
+
       return {
         id: r.id,
         action: r.action,
@@ -47,7 +60,8 @@ export async function GET() {
         daysOverdue,
         details: parsed,
         summaryText,
-        decision: parsed.decision || (r.action === 'GUARD_ALLOWED' ? 'allowed' : r.action === 'GUARD_QUEUED' ? 'queued_review' : r.action === 'GUARD_BLOCKED' ? 'blocked' : undefined),
+        decision,
+        badgeType,
         ruleApplied: parsed.ruleApplied,
         approvedBy: parsed.approvedBy,
         source: parsed.source || (r.action === 'FALLBACK_USED' ? 'rule-fallback' : undefined),

@@ -88,11 +88,11 @@ export async function GET() {
       createdAt: item.created_at,
     }));
 
-    // Recent activity: guard decisions and user actions
+    // Recent activity: guard decisions ONLY per mandate requirement
     const auditRaw = db.prepare(`
       SELECT *
       FROM audit_log
-      WHERE action IN ('GUARD_ALLOWED', 'GUARD_BLOCKED', 'GUARD_QUEUED', 'USER_APPROVAL', 'USER_REJECTION', 'DEMO_RESET', 'PAYMENT_RECORDED')
+      WHERE action IN ('GUARD_ALLOWED', 'GUARD_BLOCKED', 'GUARD_QUEUED')
       ORDER BY COALESCE(real_time, created_at) DESC
       LIMIT 25
     `).all() as any[];
@@ -121,6 +121,13 @@ export async function GET() {
         }
       }
 
+      const decision: 'allowed' | 'blocked' | 'queued_review' =
+        row.action === 'GUARD_ALLOWED'
+          ? 'allowed'
+          : row.action === 'GUARD_QUEUED'
+          ? 'queued_review'
+          : 'blocked';
+
       return {
         id: row.id,
         action: row.action,
@@ -132,12 +139,23 @@ export async function GET() {
         daysOverdue,
         details: parsedDetails,
         summaryText,
-        decision: parsedDetails.decision || (row.action === 'GUARD_ALLOWED' ? 'allowed' : row.action === 'GUARD_QUEUED' ? 'queued_review' : 'blocked'),
+        decision,
         tool: parsedDetails.tool || 'system',
         source: parsedDetails.source || (row.action.includes('GUARD') ? 'gemini-live' : undefined),
         providerUsed: parsedDetails.providerUsed,
       };
     });
+
+    // Real audit events for guided demo checklist tracking
+    const auditActions = (db.prepare('SELECT DISTINCT action FROM audit_log').all() as any[]).map((r) => r.action);
+    const demoEvents = {
+      draftCreated: auditActions.includes('DRAFT_CREATED'),
+      termsApproved: auditActions.some((a: string) => a.startsWith('TERMS_APPROVED') || a === 'INVOICE_SENT_AS_IS'),
+      guardAllowed: auditActions.includes('GUARD_ALLOWED'),
+      guardBlocked: auditActions.includes('GUARD_BLOCKED'),
+      userApproval: auditActions.includes('USER_APPROVAL'),
+      paymentRecorded: auditActions.includes('PAYMENT_RECORDED'),
+    };
 
     return NextResponse.json({
       simulatedDate: simulatedNow.toISOString().split('T')[0],
@@ -145,6 +163,7 @@ export async function GET() {
       invoices,
       approvalQueue,
       agentActivity,
+      demoEvents,
       mandateRules: getMandateRules(),
     });
   } catch (err: any) {

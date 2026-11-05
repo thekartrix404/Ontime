@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { HeaderBadges } from '@/components/HeaderBadges';
 
 interface AuditItem {
   id: string;
@@ -14,6 +15,7 @@ interface AuditItem {
   daysOverdue?: number | null;
   summaryText: string;
   decision?: 'allowed' | 'blocked' | 'queued_review';
+  badgeType?: 'allowed' | 'blocked' | 'queued_review' | 'user_action' | 'event';
   ruleApplied?: string;
   approvedBy?: string;
   source?: string;
@@ -77,10 +79,7 @@ export default function AuditPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-3 py-1.5 rounded-full font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              PayPal Sandbox Active
-            </span>
+            <HeaderBadges />
           </div>
         </div>
       </header>
@@ -137,10 +136,11 @@ export default function AuditPage() {
               </div>
             ) : (
               logs.map((log) => {
-                const isAllowed = log.decision === 'allowed' || log.action === 'GUARD_ALLOWED';
-                const isBlocked = log.decision === 'blocked' || log.action === 'GUARD_BLOCKED';
-                const isQueued = log.decision === 'queued_review' || log.action === 'GUARD_QUEUED';
-                const isUserAction = log.approvedBy === 'user' || log.action.startsWith('USER_');
+                const isAllowed = log.badgeType === 'allowed' || log.decision === 'allowed' || log.action === 'GUARD_ALLOWED';
+                const isBlocked = log.badgeType === 'blocked' || log.decision === 'blocked' || log.action === 'GUARD_BLOCKED';
+                const isQueued = log.badgeType === 'queued_review' || log.decision === 'queued_review' || log.action === 'GUARD_QUEUED';
+                const isUserAction = !isAllowed && !isBlocked && !isQueued && (log.badgeType === 'user_action' || log.action === 'USER_APPROVAL' || log.action === 'USER_REJECTION' || log.approvedBy === 'user');
+                const isEvent = !isAllowed && !isBlocked && !isQueued && !isUserAction;
 
                 const realTimeStr = log.realTime
                   ? log.realTime.replace('T', ' ').substring(0, 19)
@@ -188,8 +188,13 @@ export default function AuditPage() {
                           </span>
                         )}
                         {isUserAction && (
-                          <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase bg-indigo-950 text-indigo-300 border border-indigo-800">
+                          <span className="px-2 py-0.5 rounded font-bold text-[10px] tracking-wider uppercase bg-slate-800 text-slate-300 border border-slate-700">
                             USER ACTION
+                          </span>
+                        )}
+                        {isEvent && (
+                          <span className="px-2 py-0.5 rounded font-bold text-[10px] tracking-wider uppercase bg-slate-800/80 text-slate-400 border border-slate-700/80">
+                            EVENT
                           </span>
                         )}
                         <span className="text-[11px] font-mono text-slate-500">

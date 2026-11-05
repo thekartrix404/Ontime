@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db';
 import { scoreClient, PastInvoice } from '@/lib/risk';
 import { proposeTerms } from '@/lib/terms';
 import { explainRecommendation } from '@/lib/explain';
+import { getSimulatedNow } from '@/lib/clock';
 
 export async function POST(req: NextRequest) {
   try {
@@ -92,6 +93,34 @@ export async function POST(req: NextRequest) {
       riskResult.reasons,
       proposedTerms,
       riskResult.metrics
+    );
+
+    // 7. Log draft created audit event for guided demo tracking
+    const realTime = new Date().toISOString();
+    const simulatedNow = getSimulatedNow().toISOString();
+    const clientDisplayName = extractedData.client_name || extractedData.company || clientRow?.name || 'Client';
+    const draftDetails = {
+      summaryText: `Extracted draft invoice from client email for ${clientDisplayName} ($${totalAmount} ${extractedData.currency || 'USD'}, risk level: ${riskResult.level.toUpperCase()}).`,
+      clientName: clientDisplayName,
+      company: extractedData.company || clientRow?.company,
+      totalAmount,
+      riskLevel: riskResult.level,
+      source: extraction.source || 'gemini-live',
+    };
+
+    db.prepare(`
+      INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      `audit_draft_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      'DRAFT_CREATED',
+      'draft',
+      clientRow?.id || 'new_client',
+      JSON.stringify(draftDetails),
+      realTime,
+      simulatedNow,
+      0,
+      realTime
     );
 
     return NextResponse.json({
