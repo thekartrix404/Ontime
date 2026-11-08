@@ -3,6 +3,40 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { HeaderBadges } from '@/components/HeaderBadges';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from '@/components/ui/card';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
+import {
+  Zap,
+  Clock,
+  ClipboardList,
+  ShieldAlert,
+  BarChart2,
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  ArrowRight,
+  ExternalLink,
+  ChevronDown,
+  RefreshCw,
+} from 'lucide-react';
 
 interface DemoEvents {
   draftCreated: boolean;
@@ -108,7 +142,6 @@ export default function DashboardPage() {
         setDemoEvents(data.demoEvents);
       }
 
-      // Default relative jump selection to the newest open invoice (SENT, UNPAID, PARTIALLY_PAID)
       const openInvs = invs.filter((i) =>
         ['SENT', 'UNPAID', 'PARTIALLY_PAID'].includes(i.status.toUpperCase())
       );
@@ -121,9 +154,11 @@ export default function DashboardPage() {
         setSelectedInvoiceId('');
       }
     } catch (err: any) {
+      const msg = err.message || 'Error loading dashboard';
+      toast.error(msg);
       setNotification({
         type: 'error',
-        message: err.message || 'Error loading dashboard',
+        message: msg,
         retry: () => fetchData(),
       });
     } finally {
@@ -148,12 +183,15 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to advance time');
 
       const decisionsCount = data.agentResult?.decisions?.length || 0;
+      const msg = `Advanced +${days} days to ${data.simulatedDate}. Agent evaluated open invoices (${decisionsCount} actions).`;
+      toast.success(msg);
       setNotification({
         type: 'success',
-        message: `Advanced +${days} days to ${data.simulatedDate}. Follow-up agent evaluated open invoices (${decisionsCount} tool calls evaluated).`,
+        message: msg,
       });
       await fetchData();
     } catch (err: any) {
+      toast.error(err.message || 'Failed to advance time');
       setNotification({
         type: 'error',
         message: err.message,
@@ -174,15 +212,18 @@ export default function DashboardPage() {
         body: JSON.stringify({ invoiceId, relativeDays }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to jump clock relative to invoice due date');
+      if (!res.ok) throw new Error(data.error || 'Failed to jump clock');
 
       const decisionsCount = data.agentResult?.decisions?.length || 0;
+      const msg = `${data.description}: ${data.selectedInvoiceNumber} is now ${data.resultingDaysOverdue} days overdue (${data.simulatedDate}). Agent ran ${decisionsCount} actions.`;
+      toast.success(msg);
       setNotification({
         type: 'success',
-        message: `Clock shifted (${data.description}): ${data.selectedInvoiceNumber} is now ${data.resultingDaysOverdue} days overdue (Simulated Date: ${data.simulatedDate}). Agent executed (${decisionsCount} actions).`,
+        message: msg,
       });
       await fetchData();
     } catch (err: any) {
+      toast.error(err.message || 'Failed to jump clock');
       setNotification({
         type: 'error',
         message: err.message,
@@ -203,9 +244,11 @@ export default function DashboardPage() {
       const res = await fetch('/api/demo/reset', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset demo');
-      setNotification({ type: 'success', message: 'Demo reset! Initial seed restored and clock reset.' });
+      toast.success('Demo reset. Seed data restored and clock reset.');
+      setNotification({ type: 'success', message: 'Demo reset. Seed data restored and clock reset.' });
       await fetchData();
     } catch (err: any) {
+      toast.error(err.message || 'Failed to reset demo');
       setNotification({ type: 'error', message: err.message });
     } finally {
       setActionLoading(null);
@@ -223,12 +266,15 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to record payment');
+      const msg = `${invoiceNumber} marked as paid and recorded via PayPal.`;
+      toast.success(msg);
       setNotification({
         type: 'success',
-        message: `Invoice ${invoiceNumber} marked as paid and payment recorded via PayPal.`,
+        message: msg,
       });
       await fetchData();
     } catch (err: any) {
+      toast.error(err.message || 'Failed to record payment');
       setNotification({
         type: 'error',
         message: err.message,
@@ -250,12 +296,14 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to approve message');
+      toast.success('Approved and sent via PayPal. Recorded in audit log.');
       setNotification({
         type: 'success',
-        message: 'Message approved and sent via PayPal reminder. Recorded in audit log.',
+        message: 'Approved and sent via PayPal. Recorded in audit log.',
       });
       await fetchData();
     } catch (err: any) {
+      toast.error(err.message || 'Failed to approve message');
       setNotification({
         type: 'error',
         message: err.message,
@@ -277,12 +325,11 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reject message');
-      setNotification({
-        type: 'success',
-        message: 'Queued item rejected.',
-      });
+      toast.success('Queued item rejected.');
+      setNotification({ type: 'success', message: 'Queued item rejected.' });
       await fetchData();
     } catch (err: any) {
+      toast.error(err.message || 'Failed to reject message');
       setNotification({
         type: 'error',
         message: err.message,
@@ -293,7 +340,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Guided demo steps - Done state comes strictly from real audit events
+  // Demo step state — driven strictly from real audit events
   const isStep1Done = Boolean(demoEvents.draftCreated);
   const isStep2Done = Boolean(demoEvents.termsApproved);
   const isStep3Done = Boolean(demoEvents.guardAllowed);
@@ -314,85 +361,60 @@ export default function DashboardPage() {
   const activeDemoStep = userSelectedStep !== null ? userSelectedStep : computeAutoStep();
 
   const DEMO_STEPS = [
-    {
-      num: 1,
-      name: 'Paste',
-      title: 'Paste client email',
-      desc: 'Paste client email on Home to extract terms and risk score',
-      link: '/',
-      isDone: isStep1Done,
-    },
-    {
-      num: 2,
-      name: 'Approve',
-      title: 'Approve terms',
-      desc: 'Approve proposed terms (Net-14 or 40/60 split) to send invoice',
-      link: '/',
-      isDone: isStep2Done,
-    },
-    {
-      num: 3,
-      name: 'Jump +5',
-      title: 'Advance +5 days',
-      desc: 'Follow-up agent auto-sends friendly/nudge reminder via PayPal',
-      isDone: isStep3Done,
-    },
-    {
-      num: 4,
-      name: 'Jump +15 (blocked)',
-      title: 'Advance +15 days',
-      desc: 'Agent attempts firm reminder, BLOCKED by mandate guard and queued',
-      isDone: isStep4Done,
-    },
-    {
-      num: 5,
-      name: 'Approve queue',
-      title: 'Approve queue item',
-      desc: 'Review and approve intercepted firm reminder in the approval queue',
-      isDone: isStep5Done,
-    },
-    {
-      num: 6,
-      name: 'Mark paid',
-      title: 'Mark invoice paid',
-      desc: 'Record PayPal payment and inspect full plain-English audit log',
-      isDone: isStep6Done,
-    },
+    { num: 1, title: 'Paste client email', desc: 'Paste a client email on Home to extract terms and risk score', link: '/', isDone: isStep1Done },
+    { num: 2, title: 'Approve terms', desc: 'Approve proposed terms (Net-14 or 40/60 split) to send invoice', link: '/', isDone: isStep2Done },
+    { num: 3, title: 'Advance +5 days', desc: 'Agent auto-sends a friendly or nudge reminder via PayPal', isDone: isStep3Done },
+    { num: 4, title: 'Advance +15 days', desc: 'Agent tries a firm reminder — blocked by mandate guard and queued', isDone: isStep4Done },
+    { num: 5, title: 'Approve queue item', desc: 'Review and approve the intercepted firm reminder', isDone: isStep5Done },
+    { num: 6, title: 'Mark invoice paid', desc: 'Record a PayPal payment and inspect the audit log', isDone: isStep6Done },
   ];
 
-  // Open invoices for relative-jump dropdown: only SENT, UNPAID, PARTIALLY_PAID
   const openInvoices = invoices.filter((inv) =>
     ['SENT', 'UNPAID', 'PARTIALLY_PAID'].includes(inv.status.toUpperCase())
   );
-  const selectedInvoice = openInvoices.find((inv) => inv.id === selectedInvoiceId) || (openInvoices.length > 0 ? openInvoices[0] : null);
+  const selectedInvoice =
+    openInvoices.find((inv) => inv.id === selectedInvoiceId) ||
+    (openInvoices.length > 0 ? openInvoices[0] : null);
   const selectedDaysOverdue = selectedInvoice ? selectedInvoice.daysOverdue : 0;
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-background text-foreground flex flex-col font-sans">
+      {/* Sticky Header */}
+      <header className="border-b border-border/40 bg-background/95 backdrop-blur-md sticky top-0 z-40 transition-colors">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-black shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
-                ⚡
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm transition-transform group-hover:scale-105">
+                <Zap size={16} className="text-primary-foreground" strokeWidth={2.5} />
               </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                  OnTime <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 font-semibold border border-indigo-700/60 uppercase">PayPal Agent</span>
-                </h1>
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold tracking-tight text-foreground leading-tight">
+                  OnTime
+                </span>
+                <span className="text-[11px] text-muted-foreground font-normal leading-none">
+                  PayPal Autonomous Agent
+                </span>
               </div>
             </Link>
 
             <nav className="hidden sm:flex items-center gap-1 text-sm font-medium">
-              <Link href="/" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
-                New Invoice
+              <Link
+                href="/"
+                className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              >
+                New invoice
               </Link>
-              <Link href="/dashboard" className="px-3 py-1.5 rounded-lg text-indigo-300 bg-indigo-950/70 border border-indigo-800/60 transition-colors">
+              <Link
+                href="/dashboard"
+                className="px-3 py-1.5 rounded-md text-foreground bg-secondary shadow-xs transition-colors"
+              >
                 Dashboard
               </Link>
-              <Link href="/audit" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
-                Audit Log
+              <Link
+                href="/audit"
+                className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              >
+                Audit log
               </Link>
             </nav>
           </div>
@@ -404,538 +426,621 @@ export default function DashboardPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Simulated Clock & Time Travel Banner */}
-        <section className="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/60 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-          {/* Row 1: Clock & Fixed Day Advances */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400">
-                <span>🕒 Simulated Clock Engine</span>
-              </div>
-              <div className="flex items-baseline gap-3">
-                <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-mono">
-                  {simulatedDate || 'Loading...'}
-                </span>
-                <span className="text-xs text-slate-400">
-                  Days overdue computed in code relative to this date
-                </span>
-              </div>
-            </div>
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
 
-            {/* Fixed Jumps & Reset */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => handleAdvance(5)}
-                disabled={actionLoading !== null}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                {actionLoading === '+5d' ? 'Running...' : '+5 days'}
-              </button>
-              <button
-                onClick={() => handleAdvance(15)}
-                disabled={actionLoading !== null}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                {actionLoading === '+15d' ? 'Running...' : '+15 days'}
-              </button>
-              <button
-                onClick={() => handleAdvance(30)}
-                disabled={actionLoading !== null}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                {actionLoading === '+30d' ? 'Running...' : '+30 days'}
-              </button>
-              <button
-                onClick={handleResetDemo}
-                disabled={actionLoading !== null}
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/80 hover:text-rose-200 border border-slate-700 hover:border-rose-800 disabled:opacity-50 text-slate-300 font-medium text-xs transition-all cursor-pointer"
-              >
-                {actionLoading === 'reset' ? 'Resetting...' : 'Reset demo'}
-              </button>
-            </div>
-          </div>
-
-          {/* Row 2: Due-Date-Relative Time Travel */}
-          <div className="pt-3 border-t border-slate-800/80 flex flex-col xl:flex-row xl:items-center justify-between gap-3 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold text-slate-300">Jump to (relative to due date):</span>
-              <select
-                value={selectedInvoice?.id || ''}
-                onChange={(e) => setSelectedInvoiceId(e.target.value)}
-                disabled={openInvoices.length === 0}
-                className="bg-slate-950 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 font-mono disabled:opacity-50"
-              >
-                {openInvoices.length === 0 ? (
-                  <option value="">No open invoices</option>
-                ) : (
-                  openInvoices.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.invoiceNumber} - {inv.clientName} (Due: {inv.dueDate})
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, -2)}
-                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
-              >
-                {actionLoading === 'rel--2' ? 'Jumping...' : '2 days before due'}
-              </button>
-              <button
-                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 5)}
-                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
-                className="px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/80 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
-              >
-                {actionLoading === 'rel-5' ? 'Jumping...' : '5 days overdue'}
-              </button>
-              <button
-                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 15)}
-                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
-                className="px-3 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/80 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
-              >
-                {actionLoading === 'rel-15' ? 'Jumping...' : '15 days overdue'}
-              </button>
-              <button
-                onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 30)}
-                disabled={actionLoading !== null || !selectedInvoice || openInvoices.length === 0}
-                className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition cursor-pointer"
-              >
-                {actionLoading === 'rel-30' ? 'Jumping...' : '30 days overdue'}
-              </button>
-
-              {openInvoices.length === 0 && (
-                <span className="text-amber-400 text-xs italic font-medium ml-1">
-                  ⚠️ No open invoices available for time travel
-                </span>
-              )}
-
-              {selectedInvoice && openInvoices.length > 0 && (
-                <div className="font-mono text-[11px] px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 flex items-center gap-1.5 ml-1">
-                  <span className="text-slate-400">Selected:</span>
-                  <strong className="text-white">{selectedInvoice.invoiceNumber}</strong>
-                  <span className="text-slate-500">|</span>
-                  <span
-                    className={
-                      selectedDaysOverdue > 0
-                        ? 'text-rose-400 font-bold'
-                        : selectedDaysOverdue === 0
-                        ? 'text-amber-400 font-bold'
-                        : 'text-slate-400'
-                    }
-                  >
-                    {selectedDaysOverdue > 0
-                      ? `+${selectedDaysOverdue}d overdue`
-                      : selectedDaysOverdue === 0
-                      ? 'Due today'
-                      : `${Math.abs(selectedDaysOverdue)}d before due`}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* Notifications with Retry */}
+        {/* Inline Notification Banner with Retry */}
         {notification && (
           <div
-            className={`p-4 rounded-xl border flex items-center justify-between text-sm shadow-lg animate-in fade-in gap-3 ${
+            className={`px-4 py-3 rounded-xl border flex items-center justify-between text-sm gap-3 shadow-xs transition-all ${
               notification.type === 'success'
-                ? 'bg-emerald-950/80 border-emerald-800 text-emerald-200'
-                : 'bg-rose-950/80 border-rose-800 text-rose-200'
+                ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
             }`}
           >
-            <span>{notification.message}</span>
+            <div className="flex items-center gap-2.5">
+              {notification.type === 'success' ? (
+                <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle size={16} className="text-rose-400 shrink-0" />
+              )}
+              <span>{notification.message}</span>
+            </div>
             <div className="flex items-center gap-2 shrink-0">
               {notification.retry && (
-                <button
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={() => {
                     const fn = notification.retry;
                     setNotification(null);
                     fn?.();
                   }}
-                  className="px-3 py-1 rounded-lg bg-rose-800 hover:bg-rose-700 text-white font-semibold text-xs transition cursor-pointer"
+                  className="h-7 text-xs bg-rose-900/40 border-rose-800 text-rose-200 hover:bg-rose-900/60 hover:text-rose-100"
                 >
-                  Retry ↺
-                </button>
+                  Retry
+                </Button>
               )}
-              <button
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => setNotification(null)}
-                className="text-lg leading-none px-2 font-bold opacity-70 hover:opacity-100 cursor-pointer"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
               >
                 ×
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
-        {/* Guided Demo Checklist Panel */}
-        <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">📋</span>
-              <h2 className="text-base font-bold text-white tracking-tight">Run Guided Demo</h2>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 font-medium font-mono">
-                Checklist
-              </span>
-            </div>
-            <span className="text-xs text-slate-400">
-              Step {activeDemoStep} of 6 in progress
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {DEMO_STEPS.map((step) => {
-              const isDone = Boolean(step.isDone);
-              const isCurrent = step.num === activeDemoStep && !isDone;
-
-              return (
-                <div
-                  key={step.num}
-                  onClick={() => setUserSelectedStep(step.num)}
-                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                    isDone
-                      ? 'bg-slate-950/60 border-emerald-900/60 text-slate-300'
-                      : isCurrent
-                      ? 'bg-indigo-950/70 border-indigo-500 shadow-md shadow-indigo-950 ring-1 ring-indigo-500'
-                      : 'bg-slate-950/40 border-slate-800/80 text-slate-500 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono font-bold text-indigo-400">Step 0{step.num}</span>
-                      {isDone ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
-                          Done ✓
-                        </span>
-                      ) : isCurrent ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-extrabold uppercase tracking-wider animate-pulse">
-                          Current
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-600 font-mono">Pending</span>
-                      )}
-                    </div>
-                    <p className={`text-xs font-bold ${isDone ? 'text-emerald-300' : isCurrent ? 'text-white' : 'text-slate-400'}`}>
-                      {step.title}
-                    </p>
-                    <p className="text-[11px] leading-relaxed text-slate-400">
-                      {step.desc}
-                    </p>
-                  </div>
-
-                  {step.link && !isDone && (
-                    <div className="pt-2">
-                      <Link
-                        href={step.link}
-                        className="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-medium"
-                      >
-                        Open {step.title} →
-                      </Link>
-                    </div>
+        {/* Clock Card with Time Travel */}
+        <Card className="border-border/60 bg-card shadow-xs">
+          <CardHeader className="pb-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Clock size={14} className="text-primary" />
+                  <span>Simulated clock & environment</span>
+                </div>
+                <div className="flex items-baseline gap-3">
+                  {loading && !simulatedDate ? (
+                    <Skeleton className="h-8 w-36" />
+                  ) : (
+                    <span className="text-2xl font-bold font-mono tracking-tight text-foreground tabular-nums">
+                      {simulatedDate || '—'}
+                    </span>
                   )}
+                  <span className="text-xs text-muted-foreground">
+                    Days overdue computed relative to this date
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Approval Queue Panel */}
-        <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-              <h2 className="text-base font-bold text-white tracking-tight">
-                Approval Queue ({approvalQueue.length})
-              </h2>
-            </div>
-            <span className="text-xs text-slate-400">
-              Firm/formal tones & escalations intercepted by Mandate Guard
-            </span>
-          </div>
-
-          {approvalQueue.length === 0 ? (
-            <div className="py-6 text-center border border-dashed border-slate-800 rounded-xl text-slate-500 text-xs">
-              No pending communications in the approval queue. Automatic reminders operate within mandate limits.
-            </div>
-          ) : (
-            <div className="grid gap-3">
-              {approvalQueue.map((item) => (
-                <div key={item.id} className="bg-slate-950/80 border border-amber-900/50 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold text-white text-sm">{item.clientName}</span>
-                      <span className="text-xs font-mono text-slate-400">({item.invoiceNumber})</span>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider bg-amber-950 text-amber-300 border border-amber-700/60">
-                        Tone: {item.tone}
-                      </span>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                        Tool: {item.tool}
-                      </span>
-                      {item.source && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full uppercase font-bold font-mono tracking-wider bg-slate-900 text-indigo-300 border border-slate-700">
-                          source: {item.source}
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-xs font-medium text-slate-300">{item.subject}</p>
-                    <p className="text-xs text-slate-400 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/60 whitespace-pre-wrap font-sans">
-                      {item.message}
-                    </p>
-                    <p className="text-[11px] text-amber-400/90 italic">
-                      🛡️ Blocked by rule: {item.ruleBlocked}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-end md:self-center shrink-0">
-                    <button
-                      onClick={() => handleApproveQueue(item.id)}
-                      disabled={actionLoading !== null}
-                      className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium text-xs shadow transition-all cursor-pointer"
-                    >
-                      {actionLoading === `approve-${item.id}` ? 'Sending...' : 'Approve & Send'}
-                    </button>
-                    <button
-                      onClick={() => handleRejectQueue(item.id)}
-                      disabled={actionLoading !== null}
-                      className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-all cursor-pointer"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Invoices List Table */}
-        <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white tracking-tight">Invoice Portfolio</h2>
-              <p className="text-xs text-slate-400">All registered invoices and status indicators</p>
-            </div>
-            <Link
-              href="/"
-              className="text-xs font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              + Create New Invoice
-            </Link>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold">
-                  <th className="py-3 px-3">Invoice</th>
-                  <th className="py-3 px-3">Client</th>
-                  <th className="py-3 px-3">Amount</th>
-                  <th className="py-3 px-3">Due Date</th>
-                  <th className="py-3 px-3">Days Overdue</th>
-                  <th className="py-3 px-3">Linked Deposit/Balance</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {invoices.map((inv) => {
-                  const isPaid = inv.status === 'PAID' || inv.status === 'MARKED_AS_PAID';
-                  return (
-                    <tr key={inv.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-3.5 px-3 font-mono font-medium text-slate-200">
-                        {inv.invoiceNumber}
-                      </td>
-                      <td className="py-3.5 px-3">
-                        <div className="font-semibold text-slate-200">{inv.clientName}</div>
-                        <div className="text-[11px] text-slate-400">{inv.company}</div>
-                      </td>
-                      <td className="py-3.5 px-3 font-mono font-semibold text-white">
-                        ${inv.amount} {inv.currency}
-                      </td>
-                      <td className="py-3.5 px-3 text-slate-300 font-mono">
-                        {inv.dueDate}
-                      </td>
-                      <td className="py-3.5 px-3 font-mono">
-                        {isPaid ? (
-                          <span className="text-slate-500">—</span>
-                        ) : inv.daysOverdue > 0 ? (
-                          <span className="text-rose-400 font-bold bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/60">
-                            +{inv.daysOverdue} days
-                          </span>
-                        ) : inv.daysOverdue === 0 ? (
-                          <span className="text-amber-400 font-bold">Due today</span>
-                        ) : (
-                          <span className="text-slate-400">
-                            In {Math.abs(inv.daysOverdue)} days
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3">
-                        {inv.linkedInvoice ? (
-                          <div className="text-[11px] text-indigo-300 bg-indigo-950/60 border border-indigo-800/50 px-2 py-1 rounded inline-block">
-                            Linked {inv.linkedInvoice.type}: <span className="font-mono font-bold">${inv.linkedInvoice.amount}</span> ({inv.linkedInvoice.status})
-                          </div>
-                        ) : (
-                          <span className="text-slate-500">—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3">
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase border ${
-                          isPaid
-                            ? 'bg-emerald-950 text-emerald-300 border-emerald-800/70'
-                            : inv.daysOverdue > 0
-                            ? 'bg-rose-950 text-rose-300 border-rose-800/70'
-                            : 'bg-slate-800 text-slate-300 border-slate-700'
-                        }`}>
-                          {inv.status}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-3 text-right">
-                        {!isPaid && (
-                          <button
-                            onClick={() => handleMarkAsPaid(inv.id, inv.invoiceNumber)}
-                            disabled={actionLoading !== null}
-                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-emerald-950 hover:text-emerald-200 hover:border-emerald-700 border border-slate-700 text-slate-300 font-medium text-[11px] transition-colors cursor-pointer"
-                          >
-                            {actionLoading === `pay-${inv.id}` ? 'Saving...' : 'Mark as paid'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* Agent Activity Panel */}
-        <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white tracking-tight">Agent Activity & Guard Decisions</h2>
-              <p className="text-xs text-slate-400">Latest tool calls and mandate enforcement decisions (newest first)</p>
-            </div>
-            <Link
-              href="/audit"
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
-            >
-              View Full Audit Log →
-            </Link>
-          </div>
-
-          <div className="space-y-2.5">
-            {agentActivity.length === 0 ? (
-              <div className="py-6 text-center text-slate-500 text-xs">
-                No recent agent activity recorded. Use the time travel buttons to advance days and trigger the follow-up agent.
               </div>
-            ) : (
-              agentActivity.slice(0, 10).map((act) => {
-                const isAllowed = act.decision === 'allowed' || act.action === 'GUARD_ALLOWED';
-                const isBlocked = act.decision === 'blocked' || act.action === 'GUARD_BLOCKED';
-                const isQueued = act.decision === 'queued_review' || act.action === 'GUARD_QUEUED';
 
-                const realTimeStr = act.realTime
-                  ? act.realTime.replace('T', ' ').substring(0, 19)
-                  : act.timestamp.replace('T', ' ').substring(0, 19);
+              <div className="flex flex-wrap items-center gap-2">
+                {[5, 15, 30].map((d) => (
+                  <Button
+                    key={d}
+                    size="sm"
+                    onClick={() => handleAdvance(d)}
+                    disabled={actionLoading !== null}
+                    className="font-medium text-xs shadow-xs"
+                  >
+                    {actionLoading === `+${d}d` ? 'Running…' : `+${d} days`}
+                  </Button>
+                ))}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleResetDemo}
+                  disabled={actionLoading !== null}
+                  className="font-medium text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                >
+                  <RefreshCw size={13} className={actionLoading === 'reset' ? 'animate-spin' : ''} />
+                  {actionLoading === 'reset' ? 'Resetting…' : 'Reset demo'}
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
 
-                const daysOverdueNum = typeof act.daysOverdue === 'number' ? act.daysOverdue : null;
-                const daysOverdueText = daysOverdueNum !== null
-                  ? `Day ${daysOverdueNum >= 0 ? '+' + daysOverdueNum : daysOverdueNum}`
-                  : null;
+          <Separator className="opacity-50" />
 
-                const simDateText = act.simulatedTime
-                  ? act.simulatedTime.substring(0, 10)
-                  : null;
+          {/* Relative jumps row */}
+          <CardContent className="pt-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 text-xs">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-muted-foreground font-medium">Jump relative to due date:</span>
+              <div className="relative">
+                <select
+                  value={selectedInvoice?.id || ''}
+                  onChange={(e) => setSelectedInvoiceId(e.target.value)}
+                  disabled={openInvoices.length === 0}
+                  className="h-8 bg-secondary/80 hover:bg-secondary border border-input text-foreground rounded-lg px-2.5 pr-7 text-xs font-mono focus:outline-hidden focus:ring-2 focus:ring-ring disabled:opacity-40 appearance-none cursor-pointer"
+                >
+                  {openInvoices.length === 0 ? (
+                    <option value="">No open invoices</option>
+                  ) : (
+                    openInvoices.map((inv) => (
+                      <option key={inv.id} value={inv.id}>
+                        {inv.invoiceNumber} · {inv.clientName} (due {inv.dueDate})
+                      </option>
+                    ))
+                  )}
+                </select>
+                <ChevronDown size={13} className="absolute right-2 top-2.5 pointer-events-none text-muted-foreground" />
+              </div>
+            </div>
 
-                // Ensure summaryText is strictly plain English and never raw JSON
-                let cleanSummary = act.summaryText;
-                if (!cleanSummary || (typeof cleanSummary === 'string' && cleanSummary.trim().startsWith('{'))) {
-                  if (act.details?.summaryText) {
-                    cleanSummary = act.details.summaryText;
-                  } else {
-                    cleanSummary = `Activity logged: ${act.action}`;
-                  }
-                }
+            <div className="flex flex-wrap items-center gap-2">
+              {openInvoices.length === 0 ? (
+                <span className="flex items-center gap-1.5 text-muted-foreground text-xs py-1">
+                  <AlertTriangle size={13} className="text-amber-500" />
+                  No open invoices for time travel
+                </span>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, -2)}
+                    disabled={actionLoading !== null || !selectedInvoice}
+                    className="h-8 text-xs font-medium"
+                  >
+                    {actionLoading === 'rel--2' ? 'Jumping…' : '2 days before due'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 5)}
+                    disabled={actionLoading !== null || !selectedInvoice}
+                    className="h-8 text-xs font-medium border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20"
+                  >
+                    {actionLoading === 'rel-5' ? 'Jumping…' : '5 days overdue'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 15)}
+                    disabled={actionLoading !== null || !selectedInvoice}
+                    className="h-8 text-xs font-medium border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                  >
+                    {actionLoading === 'rel-15' ? 'Jumping…' : '15 days overdue'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => selectedInvoice && handleRelativeAdvance(selectedInvoice.id, 30)}
+                    disabled={actionLoading !== null || !selectedInvoice}
+                    className="h-8 text-xs font-medium border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                  >
+                    {actionLoading === 'rel-30' ? 'Jumping…' : '30 days overdue'}
+                  </Button>
+
+                  {selectedInvoice && (
+                    <Badge variant="outline" className="h-8 px-2.5 font-mono text-xs gap-1.5 bg-secondary/50">
+                      <span>{selectedInvoice.invoiceNumber}</span>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span
+                        className={
+                          selectedDaysOverdue > 0
+                            ? 'text-rose-400 font-semibold'
+                            : selectedDaysOverdue === 0
+                            ? 'text-amber-400 font-semibold'
+                            : 'text-muted-foreground'
+                        }
+                      >
+                        {selectedDaysOverdue > 0
+                          ? `+${selectedDaysOverdue}d overdue`
+                          : selectedDaysOverdue === 0
+                          ? 'Due today'
+                          : `${Math.abs(selectedDaysOverdue)}d before due`}
+                      </span>
+                    </Badge>
+                  )}
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Guided Demo Checklist */}
+        <Card className="border-border/60 bg-card shadow-xs">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ClipboardList size={16} className="text-primary" />
+                <CardTitle className="text-sm font-semibold">Guided demo</CardTitle>
+              </div>
+              <Badge variant="secondary" className="font-mono text-xs">
+                Step {activeDemoStep} of 6
+              </Badge>
+            </div>
+            <CardDescription className="text-xs">
+              Interactive 6-step walkthrough driven strictly by verified backend audit events
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {DEMO_STEPS.map((step) => {
+                const isDone = Boolean(step.isDone);
+                const isCurrent = step.num === activeDemoStep && !isDone;
 
                 return (
                   <div
-                    key={act.id}
-                    className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-xs"
+                    key={step.num}
+                    onClick={() => setUserSelectedStep(step.num)}
+                    className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-3 text-xs ${
+                      isDone
+                        ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
+                        : isCurrent
+                        ? 'bg-primary/10 border-primary/50 ring-1 ring-primary/40 shadow-xs'
+                        : 'bg-card border-border/60 hover:border-border hover:bg-muted/40'
+                    }`}
                   >
-                    <div className="flex items-start gap-3 flex-1">
-                      {isAllowed && (
-                        <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase border shrink-0 mt-0.5 bg-emerald-950 text-emerald-300 border-emerald-800">
-                          ALLOWED
-                        </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-semibold text-muted-foreground">
+                        {String(step.num).padStart(2, '0')}
+                      </span>
+                      {isDone ? (
+                        <CheckCircle2 size={15} className="text-emerald-400" />
+                      ) : isCurrent ? (
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                      ) : (
+                        <Circle size={15} className="text-muted-foreground/40" />
                       )}
-                      {isBlocked && (
-                        <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase border shrink-0 mt-0.5 bg-rose-950 text-rose-300 border-rose-800">
-                          BLOCKED
-                        </span>
-                      )}
-                      {isQueued && (
-                        <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase border shrink-0 mt-0.5 bg-amber-950 text-amber-300 border-amber-700">
-                          QUEUED FOR REVIEW
-                        </span>
-                      )}
-                      <div className="space-y-1.5 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="text-slate-200 font-medium text-xs sm:text-sm">{cleanSummary}</p>
-                          {act.source && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-800 text-indigo-300 border border-slate-700">
-                              source: {act.source}
-                            </span>
-                          )}
-                          {act.providerUsed && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-800 text-emerald-300 border border-slate-700">
-                              {act.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal'}
-                            </span>
-                          )}
-                        </div>
-                        {act.details?.ruleApplied && (
-                          <p className="text-[11px] text-amber-400 font-mono">
-                            🛡️ {act.details.ruleApplied}
-                          </p>
-                        )}
-                        {/* Collapsed details section */}
-                        {act.details && (
-                          <details className="mt-1.5 text-slate-400 font-mono text-[10px]">
-                            <summary className="cursor-pointer text-indigo-400 hover:text-indigo-300 select-none">
-                              View details
-                            </summary>
-                            <pre className="mt-1 p-2 rounded bg-slate-900/90 border border-slate-800 text-slate-300 overflow-x-auto text-[10px]">
-                              {typeof act.details === 'string' ? act.details : JSON.stringify(act.details, null, 2)}
-                            </pre>
-                          </details>
-                        )}
-                      </div>
                     </div>
 
-                    <div className="text-right text-[11px] text-slate-400 shrink-0 font-mono space-y-0.5">
-                      <div className="text-slate-300 font-semibold">
-                        {realTimeStr}
-                      </div>
-                      {(daysOverdueText || simDateText) && (
-                        <div className="text-indigo-400 text-[10px]">
-                          {daysOverdueText} ({simDateText})
-                        </div>
-                      )}
+                    <div className="space-y-1">
+                      <p className={`font-semibold ${isDone ? 'text-emerald-400' : isCurrent ? 'text-foreground' : 'text-foreground/80'}`}>
+                        {step.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {step.desc}
+                      </p>
                     </div>
+
+                    {step.link && !isDone ? (
+                      <Link
+                        href={step.link}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline pt-1"
+                      >
+                        Open page <ArrowRight size={12} />
+                      </Link>
+                    ) : (
+                      <div className="h-4" />
+                    )}
                   </div>
                 );
-              })
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Approval Queue */}
+        <Card className="border-border/60 bg-card shadow-xs">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldAlert size={16} className="text-amber-500" />
+                <CardTitle className="text-sm font-semibold">Approval queue</CardTitle>
+                {approvalQueue.length > 0 && (
+                  <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-400 font-mono text-xs">
+                    {approvalQueue.length} pending
+                  </Badge>
+                )}
+              </div>
+              <span className="text-xs text-muted-foreground hidden sm:inline">
+                Firm and formal tones intercepted by mandate guard
+              </span>
+            </div>
+            <CardDescription className="text-xs">
+              Actions requiring explicit human review before outgoing PayPal communication
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent>
+            {loading && approvalQueue.length === 0 ? (
+              <div className="space-y-3">
+                <Skeleton className="h-28 w-full rounded-xl" />
+                <Skeleton className="h-28 w-full rounded-xl" />
+              </div>
+            ) : approvalQueue.length === 0 ? (
+              <div className="py-8 text-center border border-dashed border-border/80 rounded-xl text-muted-foreground text-xs space-y-1">
+                <p className="font-medium text-foreground/70">No pending communications in queue</p>
+                <p>Automatic reminders sent within mandate limits do not require intervention.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {approvalQueue.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-card border border-amber-800/40 rounded-xl p-4 flex flex-col md:flex-row md:items-start justify-between gap-4 shadow-xs"
+                  >
+                    <div className="space-y-2.5 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-foreground text-sm">{item.clientName}</span>
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {item.invoiceNumber}
+                        </Badge>
+                        <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs">
+                          {item.tone}
+                        </Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {item.tool}
+                        </Badge>
+                        {item.source && (
+                          <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary font-mono text-xs">
+                            {item.source}
+                          </Badge>
+                        )}
+                      </div>
+
+                      <p className="text-xs font-semibold text-foreground/90">{item.subject}</p>
+                      <div className="text-xs text-muted-foreground bg-muted/40 p-3 rounded-lg border border-border/50 whitespace-pre-wrap leading-relaxed font-sans">
+                        {item.message}
+                      </div>
+                      <p className="text-xs font-medium text-amber-400/90 flex items-center gap-1.5">
+                        <ShieldAlert size={13} className="shrink-0 text-amber-500" />
+                        <span>Blocked by rule: {item.ruleBlocked}</span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end md:self-start shrink-0 pt-1">
+                      <Button
+                        size="sm"
+                        onClick={() => handleApproveQueue(item.id)}
+                        disabled={actionLoading !== null}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-xs"
+                      >
+                        {actionLoading === `approve-${item.id}` ? 'Sending…' : 'Approve & send'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRejectQueue(item.id)}
+                        disabled={actionLoading !== null}
+                        className="text-xs font-medium"
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
-        </section>
+          </CardContent>
+        </Card>
+
+        {/* Invoice Portfolio */}
+        <Card className="border-border/60 bg-card shadow-xs">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm font-semibold">Invoice portfolio</CardTitle>
+                <CardDescription className="text-xs mt-0.5">
+                  All active and historical invoices across clients
+                </CardDescription>
+              </div>
+              <Link
+                href="/"
+                className={buttonVariants({ variant: 'outline', size: 'sm', className: 'text-xs font-medium' })}
+              >
+                New invoice
+              </Link>
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            {loading && invoices.length === 0 ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : invoices.length === 0 ? (
+              <div className="py-8 text-center border border-dashed border-border/80 rounded-xl text-muted-foreground text-xs space-y-1">
+                <p className="font-medium text-foreground/70">No invoices generated yet</p>
+                <p>Generate your first invoice from the New invoice tab.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border/50 overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-muted/30">
+                    <TableRow className="border-border/50">
+                      <TableHead className="font-semibold text-xs">Invoice</TableHead>
+                      <TableHead className="font-semibold text-xs">Client</TableHead>
+                      <TableHead className="font-semibold text-xs">Amount</TableHead>
+                      <TableHead className="font-semibold text-xs">Due date</TableHead>
+                      <TableHead className="font-semibold text-xs">Days overdue</TableHead>
+                      <TableHead className="font-semibold text-xs">Linked</TableHead>
+                      <TableHead className="font-semibold text-xs">Status</TableHead>
+                      <TableHead className="font-semibold text-xs text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoices.map((inv) => {
+                      const isPaid = inv.status === 'PAID' || inv.status === 'MARKED_AS_PAID';
+                      return (
+                        <TableRow key={inv.id} className="border-border/40 hover:bg-muted/30">
+                          <TableCell className="font-mono text-xs font-semibold text-foreground">
+                            {inv.invoiceNumber}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <div className="font-medium text-foreground">{inv.clientName}</div>
+                            {inv.company && <div className="text-[11px] text-muted-foreground">{inv.company}</div>}
+                          </TableCell>
+                          <TableCell className="font-mono font-semibold text-xs tabular-nums text-foreground">
+                            ${inv.amount} {inv.currency}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground tabular-nums">
+                            {inv.dueDate}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs tabular-nums">
+                            {isPaid ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : inv.daysOverdue > 0 ? (
+                              <Badge variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-400 font-mono text-xs">
+                                +{inv.daysOverdue}d
+                              </Badge>
+                            ) : inv.daysOverdue === 0 ? (
+                              <span className="text-amber-400 font-medium">Due today</span>
+                            ) : (
+                              <span className="text-muted-foreground">In {Math.abs(inv.daysOverdue)}d</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {inv.linkedInvoice ? (
+                              <Badge variant="outline" className="border-indigo-500/30 bg-indigo-500/10 text-indigo-400 font-mono text-[11px]">
+                                {inv.linkedInvoice.type}: ${inv.linkedInvoice.amount}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <Badge
+                              variant="outline"
+                              className={`text-xs font-medium ${
+                                isPaid
+                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                                  : inv.daysOverdue > 0
+                                  ? 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+                                  : 'border-border/60 bg-secondary text-secondary-foreground'
+                              }`}
+                            >
+                              {inv.status.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right text-xs">
+                            {!isPaid && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleMarkAsPaid(inv.id, inv.invoiceNumber)}
+                                disabled={actionLoading !== null}
+                                className="h-7 text-xs font-medium hover:border-emerald-600/50 hover:bg-emerald-600/10 hover:text-emerald-300"
+                              >
+                                {actionLoading === `pay-${inv.id}` ? 'Saving…' : 'Mark as paid'}
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Agent Activity Feed */}
+        <Card className="border-border/60 bg-card shadow-xs">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BarChart2 size={16} className="text-primary" />
+                <div>
+                  <CardTitle className="text-sm font-semibold">Agent activity</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Mandate guard decisions and PayPal execution events
+                  </CardDescription>
+                </div>
+              </div>
+              <Link
+                href="/audit"
+                className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
+              >
+                Full audit log <ArrowRight size={12} />
+              </Link>
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            {loading && agentActivity.length === 0 ? (
+              <div className="space-y-2">
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+              </div>
+            ) : agentActivity.length === 0 ? (
+              <div className="py-8 text-center border border-dashed border-border/80 rounded-xl text-muted-foreground text-xs space-y-1">
+                <p className="font-medium text-foreground/70">No recent agent activity</p>
+                <p>Advance days with the time travel buttons to trigger the follow-up agent.</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {agentActivity.slice(0, 10).map((act) => {
+                  const isAllowed = act.decision === 'allowed' || act.action === 'GUARD_ALLOWED';
+                  const isBlocked = act.decision === 'blocked' || act.action === 'GUARD_BLOCKED';
+                  const isQueued = act.decision === 'queued_review' || act.action === 'GUARD_QUEUED';
+
+                  const realTimeStr = act.realTime
+                    ? act.realTime.replace('T', ' ').substring(0, 19)
+                    : act.timestamp.replace('T', ' ').substring(0, 19);
+
+                  const daysOverdueNum = typeof act.daysOverdue === 'number' ? act.daysOverdue : null;
+                  const simDateText = act.simulatedTime ? act.simulatedTime.substring(0, 10) : null;
+
+                  let cleanSummary = act.summaryText;
+                  if (!cleanSummary || (typeof cleanSummary === 'string' && cleanSummary.trim().startsWith('{'))) {
+                    cleanSummary = act.details?.summaryText || `Activity: ${act.action}`;
+                  }
+
+                  return (
+                    <div
+                      key={act.id}
+                      className="bg-card border border-border/60 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-xs shadow-2xs hover:border-border transition-colors"
+                    >
+                      <div className="flex items-start gap-3 flex-1">
+                        {/* Mandate Guard Decision Badge */}
+                        <div className="shrink-0 mt-0.5">
+                          {isAllowed && (
+                            <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-semibold text-xs">
+                              Allowed
+                            </Badge>
+                          )}
+                          {isBlocked && (
+                            <Badge variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-400 font-semibold text-xs">
+                              Blocked
+                            </Badge>
+                          )}
+                          {isQueued && (
+                            <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-400 font-semibold text-xs">
+                              Queued
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-foreground text-xs leading-relaxed font-medium">{cleanSummary}</p>
+                            {act.source && (
+                              <Badge variant="outline" className="font-mono text-[11px] border-primary/30 bg-primary/10 text-primary">
+                                {act.source}
+                              </Badge>
+                            )}
+                            {act.providerUsed && (
+                              <Badge variant="outline" className="font-mono text-[11px] border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+                                {act.providerUsed === 'sandbox' ? 'PayPal sandbox' : 'MockPayPal'}
+                              </Badge>
+                            )}
+                          </div>
+                          {act.details?.ruleApplied && (
+                            <p className="text-xs text-amber-400/90 font-mono flex items-center gap-1.5">
+                              <span>Rule: {act.details.ruleApplied}</span>
+                            </p>
+                          )}
+                          {act.details && (
+                            <details className="mt-1 text-muted-foreground group">
+                              <summary className="cursor-pointer text-primary hover:underline select-none text-xs transition-colors list-none flex items-center gap-1">
+                                <span>View details</span>
+                                <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+                              </summary>
+                              <pre className="mt-2 p-3 rounded-lg bg-muted/60 border border-border/50 text-muted-foreground font-mono overflow-x-auto text-xs leading-relaxed">
+                                {typeof act.details === 'string' ? act.details : JSON.stringify(act.details, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right text-xs text-muted-foreground shrink-0 font-mono space-y-0.5">
+                        <div className="text-foreground/80">{realTimeStr}</div>
+                        {(daysOverdueNum !== null || simDateText) && (
+                          <div className="text-primary font-medium">
+                            {daysOverdueNum !== null ? `Day ${daysOverdueNum >= 0 ? '+' + daysOverdueNum : daysOverdueNum}` : ''}
+                            {simDateText ? ` (${simDateText})` : ''}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
       </main>
     </div>
   );
 }
-

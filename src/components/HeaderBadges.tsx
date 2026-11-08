@@ -1,6 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface AppStatus {
   paypalMode: 'sandbox' | 'mock';
@@ -32,40 +38,65 @@ export function HeaderBadges() {
 
   return (
     <div className="flex items-center gap-2 text-xs">
-      {/* PayPal Badge: green for sandbox, amber for mock */}
-      <span
-        data-testid="header-paypal-badge"
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium border text-[11px] sm:text-xs transition-colors ${
-          paypalIsLive
-            ? 'text-emerald-400 bg-emerald-950/70 border-emerald-800/70'
-            : 'text-amber-400 bg-amber-950/70 border-amber-800/70'
-        }`}
-      >
-        <span
-          className={`w-2 h-2 rounded-full ${
-            paypalIsLive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-          }`}
-        />
-        {paypalIsLive ? 'PayPal Sandbox' : 'PayPal Mock'}
-      </span>
+      <Tooltip>
+        <TooltipTrigger>
+          <span
+            data-testid="header-paypal-badge"
+            className="cursor-help inline-flex"
+          >
+            <Badge
+              variant="outline"
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border transition-colors ${
+                paypalIsLive
+                  ? 'text-emerald-400 bg-emerald-950/40 border-emerald-900/50 hover:bg-emerald-950/60'
+                  : 'text-amber-400 bg-amber-950/40 border-amber-900/50 hover:bg-amber-950/60'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  paypalIsLive ? 'bg-emerald-400' : 'bg-amber-400'
+                }`}
+              />
+              {paypalIsLive ? 'PayPal Sandbox' : 'PayPal Mock'}
+            </Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs max-w-xs">
+          {paypalIsLive
+            ? 'Connected to real PayPal Sandbox API (Invoicing v2)'
+            : 'Using MockPayPal provider (local deterministic in-memory provider)'}
+        </TooltipContent>
+      </Tooltip>
 
-      {/* LLM Badge: green for live, amber for mock */}
-      <span
-        data-testid="header-llm-badge"
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium border text-[11px] sm:text-xs transition-colors ${
-          llmIsLive
-            ? 'text-emerald-400 bg-emerald-950/70 border-emerald-800/70'
-            : 'text-amber-400 bg-amber-950/70 border-amber-800/70'
-        }`}
-      >
-        <span
-          className={`w-2 h-2 rounded-full ${
-            llmIsLive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-          }`}
-        />
-        {llmIsLive ? 'Gemini Live' : 'AI Mock'}
-      </span>
+      <Tooltip>
+        <TooltipTrigger>
+          <span
+            data-testid="header-llm-badge"
+            className="cursor-help inline-flex"
+          >
+            <Badge
+              variant="outline"
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border transition-colors ${
+                llmIsLive
+                  ? 'text-emerald-400 bg-emerald-950/40 border-emerald-900/50 hover:bg-emerald-950/60'
+                  : 'text-amber-400 bg-amber-950/40 border-amber-900/50 hover:bg-amber-950/60'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  llmIsLive ? 'bg-emerald-400' : 'bg-amber-400'
+                }`}
+              />
+              {llmIsLive ? 'Gemini Live' : 'AI Mock'}
+            </Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs max-w-xs">
+          {llmIsLive
+            ? 'Live Gemini model calls via @google/genai SDK'
+            : 'Deterministic mock responses without external API calls'}
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }
-

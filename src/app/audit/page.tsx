@@ -3,6 +3,32 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { HeaderBadges } from '@/components/HeaderBadges';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
+import {
+  Zap,
+  ScrollText,
+  RefreshCw,
+  Shield,
+  AlertTriangle,
+  History,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  UserCheck,
+  Activity,
+  ChevronDown,
+} from 'lucide-react';
 
 interface AuditItem {
   id: string;
@@ -32,13 +58,16 @@ export default function AuditPage() {
   const fetchAuditData = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await fetch('/api/audit/data');
       if (!res.ok) throw new Error('Failed to load audit logs');
       const data = await res.json();
       setRules(data.rules || []);
       setLogs(data.logs || []);
     } catch (err: any) {
-      setError(err.message || 'Error loading audit logs');
+      const msg = err.message || 'Error loading audit logs';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -49,31 +78,43 @@ export default function AuditPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-background text-foreground flex flex-col font-sans">
+      {/* Sticky Header */}
+      <header className="border-b border-border/40 bg-background/95 backdrop-blur-md sticky top-0 z-40 transition-colors">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-black shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
-                ⚡
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-xs transition-transform group-hover:scale-105">
+                <Zap size={16} className="text-primary-foreground" strokeWidth={2.5} />
               </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                  OnTime <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 font-semibold border border-indigo-700/60 uppercase">PayPal Agent</span>
-                </h1>
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold tracking-tight text-foreground leading-tight">
+                  OnTime
+                </span>
+                <span className="text-[11px] text-muted-foreground font-normal leading-none">
+                  PayPal Autonomous Agent
+                </span>
               </div>
             </Link>
 
             <nav className="hidden sm:flex items-center gap-1 text-sm font-medium">
-              <Link href="/" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
-                New Invoice
+              <Link
+                href="/"
+                className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              >
+                New invoice
               </Link>
-              <Link href="/dashboard" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
+              <Link
+                href="/dashboard"
+                className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              >
                 Dashboard
               </Link>
-              <Link href="/audit" className="px-3 py-1.5 rounded-lg text-indigo-300 bg-indigo-950/70 border border-indigo-800/60 transition-colors">
-                Audit Log
+              <Link
+                href="/audit"
+                className="px-3 py-1.5 rounded-md text-foreground bg-secondary shadow-xs transition-colors"
+              >
+                Audit log
               </Link>
             </nav>
           </div>
@@ -85,181 +126,247 @@ export default function AuditPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
+
+        {/* Error notification */}
         {error && (
-          <div className="p-4 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-200 text-sm">
-            {error}
+          <div className="px-4 py-3 rounded-xl border bg-rose-950/40 border-rose-800/60 text-rose-300 flex items-center justify-between gap-3 text-sm shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle size={16} className="shrink-0 text-rose-400" />
+              <span>{error}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={fetchAuditData}
+              className="h-7 text-xs bg-rose-900/40 border-rose-800 text-rose-200 hover:bg-rose-900/60"
+            >
+              Retry
+            </Button>
           </div>
         )}
 
-        {/* Mandate Rules Panel in Plain English */}
-        <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">📜</span>
-            <h2 className="text-base font-bold text-white tracking-tight">Active Mandate Rules (Plain English)</h2>
-          </div>
-          <p className="text-xs text-slate-400">
-            These rules act as inviolable guardrails before any tool execution occurs in the system:
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 pt-2">
-            {rules.map((rule, idx) => (
-              <div
-                key={idx}
-                className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-300"
-              >
-                <span className="text-indigo-400 font-bold font-mono">0{idx + 1}.</span>
-                <span>{rule}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Plain-English Audit Log Rows */}
-        <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white tracking-tight">System Audit Log</h2>
-              <p className="text-xs text-slate-400">Complete, tamper-evident log of agent executions, guard decisions, and user actions</p>
+        {/* Mandate Rules Panel */}
+        <Card className="border-border/60 bg-card shadow-xs">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <ScrollText size={16} className="text-primary" />
+              <CardTitle className="text-sm font-semibold">Active mandate rules</CardTitle>
             </div>
-            <button
-              onClick={fetchAuditData}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
-            >
-              Refresh Logs
-            </button>
-          </div>
+            <CardDescription className="text-xs">
+              Inviolable guardrails enforced in code before any agent action executes
+            </CardDescription>
+          </CardHeader>
 
-          <div className="space-y-3">
-            {logs.length === 0 ? (
-              <div className="py-8 text-center text-slate-500 text-xs">
-                No audit log entries found.
+          <CardContent>
+            {loading && rules.length === 0 ? (
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <Skeleton className="h-14 w-full rounded-xl" />
+                <Skeleton className="h-14 w-full rounded-xl" />
+                <Skeleton className="h-14 w-full rounded-xl" />
+                <Skeleton className="h-14 w-full rounded-xl" />
               </div>
             ) : (
-              logs.map((log) => {
-                const isAllowed = log.badgeType === 'allowed' || log.decision === 'allowed' || log.action === 'GUARD_ALLOWED';
-                const isBlocked = log.badgeType === 'blocked' || log.decision === 'blocked' || log.action === 'GUARD_BLOCKED';
-                const isQueued = log.badgeType === 'queued_review' || log.decision === 'queued_review' || log.action === 'GUARD_QUEUED';
-                const isUserAction = !isAllowed && !isBlocked && !isQueued && (log.badgeType === 'user_action' || log.action === 'USER_APPROVAL' || log.action === 'USER_REJECTION' || log.approvedBy === 'user');
-                const isEvent = !isAllowed && !isBlocked && !isQueued && !isUserAction;
-
-                const realTimeStr = log.realTime
-                  ? log.realTime.replace('T', ' ').substring(0, 19)
-                  : log.createdAt.replace('T', ' ').substring(0, 19);
-
-                const daysOverdueNum = typeof log.daysOverdue === 'number' ? log.daysOverdue : null;
-                const daysOverdueText = daysOverdueNum !== null
-                  ? `Day ${daysOverdueNum >= 0 ? '+' + daysOverdueNum : daysOverdueNum}`
-                  : null;
-
-                const simDateText = log.simulatedTime
-                  ? log.simulatedTime.substring(0, 10)
-                  : null;
-
-                // Ensure summaryText is strictly plain-English and not a raw JSON blob
-                let cleanSummary = log.summaryText;
-                if (!cleanSummary || (typeof cleanSummary === 'string' && cleanSummary.trim().startsWith('{'))) {
-                  if (log.details?.summaryText) {
-                    cleanSummary = log.details.summaryText;
-                  } else {
-                    cleanSummary = `Activity logged: ${log.action}`;
-                  }
-                }
-
-                return (
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                {rules.map((rule, idx) => (
                   <div
-                    key={log.id}
-                    className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-xs"
+                    key={idx}
+                    className="bg-card border border-border/50 hover:border-border rounded-xl p-3 flex items-start gap-3 text-xs shadow-2xs transition-colors"
                   >
-                    <div className="space-y-2 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {isAllowed && (
-                          <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase bg-emerald-950 text-emerald-300 border border-emerald-800">
-                            ALLOWED
-                          </span>
-                        )}
-                        {isBlocked && (
-                          <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase bg-rose-950 text-rose-300 border border-rose-800">
-                            BLOCKED
-                          </span>
-                        )}
-                        {isQueued && (
-                          <span className="px-2 py-0.5 rounded font-black text-[10px] tracking-wider uppercase bg-amber-950 text-amber-300 border border-amber-700">
-                            QUEUED FOR REVIEW
-                          </span>
-                        )}
-                        {isUserAction && (
-                          <span className="px-2 py-0.5 rounded font-bold text-[10px] tracking-wider uppercase bg-slate-800 text-slate-300 border border-slate-700">
-                            USER ACTION
-                          </span>
-                        )}
-                        {isEvent && (
-                          <span className="px-2 py-0.5 rounded font-bold text-[10px] tracking-wider uppercase bg-slate-800/80 text-slate-400 border border-slate-700/80">
-                            EVENT
-                          </span>
-                        )}
-                        <span className="text-[11px] font-mono text-slate-500">
-                          {log.action}
-                        </span>
-                        {log.approvedBy && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                            approved_by: {log.approvedBy}
-                          </span>
-                        )}
-                        {log.source && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-900 text-indigo-300 border border-slate-700">
-                            source: {log.source}
-                          </span>
-                        )}
-                        {log.providerUsed && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase bg-slate-900 text-emerald-300 border border-slate-700">
-                            {log.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal'}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Plain-English narrative description */}
-                      <p className="text-slate-200 font-medium text-sm leading-relaxed">
-                        {cleanSummary}
-                      </p>
-
-                      {log.ruleApplied && (
-                        <p className="text-xs text-amber-400/90 font-mono bg-amber-950/30 px-2 py-1 rounded border border-amber-900/40 inline-block">
-                          🛡️ {log.ruleApplied}
-                        </p>
-                      )}
-
-                      {/* Collapsible raw JSON details section */}
-                      {log.details && (
-                        <details className="mt-2 text-slate-400 font-mono text-[11px]">
-                          <summary className="cursor-pointer text-indigo-400 hover:text-indigo-300 select-none">
-                            View details
-                          </summary>
-                          <pre className="mt-1.5 p-2 rounded bg-slate-900/90 border border-slate-800 text-slate-300 overflow-x-auto text-[10px] leading-relaxed">
-                            {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
-                          </pre>
-                        </details>
-                      )}
-                    </div>
-
-                    {/* Real time and simulated day beside each other */}
-                    <div className="text-right text-[11px] text-slate-400 shrink-0 font-mono space-y-0.5">
-                      <div className="text-slate-300 font-semibold">
-                        {realTimeStr}
-                      </div>
-                      {(daysOverdueText || simDateText) && (
-                        <div className="text-indigo-400 text-[10px]">
-                          {daysOverdueText} ({simDateText})
-                        </div>
-                      )}
-                    </div>
+                    <span className="font-mono text-primary font-semibold shrink-0 text-xs mt-0.5">
+                      {String(idx + 1).padStart(2, '0')}.
+                    </span>
+                    <span className="leading-relaxed text-foreground/90 font-medium">{rule}</span>
                   </div>
-                );
-              })
+                ))}
+              </div>
             )}
-          </div>
-        </section>
+          </CardContent>
+        </Card>
+
+        {/* Audit Log Timeline */}
+        <Card className="border-border/60 bg-card shadow-xs">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <History size={16} className="text-primary" />
+                <div>
+                  <CardTitle className="text-sm font-semibold">System audit log</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Complete, tamper-evident log of agent executions, guard decisions, and user actions
+                  </CardDescription>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={fetchAuditData}
+                disabled={loading}
+                className="text-xs font-medium gap-1.5 h-8"
+              >
+                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+                <span>Refresh</span>
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            {loading && logs.length === 0 ? (
+              <div className="space-y-3">
+                <Skeleton className="h-20 w-full rounded-xl" />
+                <Skeleton className="h-20 w-full rounded-xl" />
+                <Skeleton className="h-20 w-full rounded-xl" />
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="py-12 text-center border border-dashed border-border/80 rounded-xl text-muted-foreground text-xs space-y-1">
+                <p className="font-medium text-foreground/70">No audit log entries recorded yet</p>
+                <p>Actions from invoice creation, time jumps, and approvals will appear here.</p>
+              </div>
+            ) : (
+              <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-3 before:bottom-3 before:w-px before:bg-border/60">
+                {logs.map((log) => {
+                  const isAllowed = log.badgeType === 'allowed' || log.decision === 'allowed' || log.action === 'GUARD_ALLOWED';
+                  const isBlocked = log.badgeType === 'blocked' || log.decision === 'blocked' || log.action === 'GUARD_BLOCKED';
+                  const isQueued = log.badgeType === 'queued_review' || log.decision === 'queued_review' || log.action === 'GUARD_QUEUED';
+                  const isUserAction = !isAllowed && !isBlocked && !isQueued && (log.badgeType === 'user_action' || log.action === 'USER_APPROVAL' || log.action === 'USER_REJECTION' || log.approvedBy === 'user');
+                  const isEvent = !isAllowed && !isBlocked && !isQueued && !isUserAction;
+
+                  const realTimeStr = log.realTime
+                    ? log.realTime.replace('T', ' ').substring(0, 19)
+                    : log.createdAt.replace('T', ' ').substring(0, 19);
+
+                  const daysOverdueNum = typeof log.daysOverdue === 'number' ? log.daysOverdue : null;
+                  const simDateText = log.simulatedTime ? log.simulatedTime.substring(0, 10) : null;
+
+                  let cleanSummary = log.summaryText;
+                  if (!cleanSummary || (typeof cleanSummary === 'string' && cleanSummary.trim().startsWith('{'))) {
+                    cleanSummary = log.details?.summaryText || `Activity logged: ${log.action}`;
+                  }
+
+                  // Timeline dot icon selection
+                  let NodeIcon = Activity;
+                  let nodeColor = 'bg-muted-foreground/30 border-muted-foreground/50 text-muted-foreground';
+
+                  if (isAllowed) {
+                    NodeIcon = CheckCircle2;
+                    nodeColor = 'bg-emerald-950/80 border-emerald-500 text-emerald-400';
+                  } else if (isBlocked) {
+                    NodeIcon = XCircle;
+                    nodeColor = 'bg-rose-950/80 border-rose-500 text-rose-400';
+                  } else if (isQueued) {
+                    NodeIcon = Clock;
+                    nodeColor = 'bg-amber-950/80 border-amber-500 text-amber-400';
+                  } else if (isUserAction) {
+                    NodeIcon = UserCheck;
+                    nodeColor = 'bg-indigo-950/80 border-indigo-500 text-indigo-400';
+                  }
+
+                  return (
+                    <div key={log.id} className="relative group">
+                      {/* Timeline Node Icon */}
+                      <div
+                        className={`absolute -left-6 top-3 -translate-x-1/2 w-5 h-5 rounded-full border flex items-center justify-center shadow-xs transition-transform group-hover:scale-110 ${nodeColor}`}
+                      >
+                        <NodeIcon size={11} strokeWidth={2.5} />
+                      </div>
+
+                      {/* Timeline Card */}
+                      <div className="bg-card border border-border/60 hover:border-border rounded-xl p-4 shadow-2xs transition-colors flex flex-col sm:flex-row sm:items-start justify-between gap-4 text-xs">
+                        <div className="space-y-2 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isAllowed && (
+                              <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-semibold text-xs">
+                                ALLOWED
+                              </Badge>
+                            )}
+                            {isBlocked && (
+                              <Badge variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-400 font-semibold text-xs">
+                                BLOCKED
+                              </Badge>
+                            )}
+                            {isQueued && (
+                              <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-400 font-semibold text-xs">
+                                QUEUED FOR REVIEW
+                              </Badge>
+                            )}
+                            {isUserAction && (
+                              <Badge variant="secondary" className="font-semibold text-xs">
+                                USER ACTION
+                              </Badge>
+                            )}
+                            {isEvent && (
+                              <Badge variant="outline" className="text-muted-foreground border-border/60 text-xs">
+                                EVENT
+                              </Badge>
+                            )}
+
+                            <span className="font-mono text-muted-foreground text-xs">
+                              {log.action}
+                            </span>
+
+                            {log.approvedBy && (
+                              <Badge variant="outline" className="text-muted-foreground text-[11px] font-mono">
+                                approved_by: {log.approvedBy}
+                              </Badge>
+                            )}
+                            {log.source && (
+                              <Badge variant="outline" className="font-mono text-[11px] border-primary/30 bg-primary/10 text-primary">
+                                {log.source}
+                              </Badge>
+                            )}
+                            {log.providerUsed && (
+                              <Badge variant="outline" className="font-mono text-[11px] border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+                                {log.providerUsed === 'sandbox' ? 'PayPal sandbox' : 'MockPayPal'}
+                              </Badge>
+                            )}
+                          </div>
+
+                          {/* Plain-English narrative description */}
+                          <p className="text-foreground text-xs leading-relaxed font-medium">
+                            {cleanSummary}
+                          </p>
+
+                          {log.ruleApplied && (
+                            <p className="text-xs text-amber-400/90 inline-flex items-center gap-1.5 font-mono">
+                              <Shield size={12} className="shrink-0 text-amber-500" />
+                              <span>{log.ruleApplied}</span>
+                            </p>
+                          )}
+
+                          {/* Collapsible raw JSON details section */}
+                          {log.details && (
+                            <details className="mt-1 text-muted-foreground group/details">
+                              <summary className="cursor-pointer text-primary hover:underline select-none text-xs transition-colors list-none flex items-center gap-1">
+                                <span>View details</span>
+                                <ChevronDown size={12} className="transition-transform group-open/details:rotate-180" />
+                              </summary>
+                              <pre className="mt-2 p-3 rounded-lg bg-muted/60 border border-border/50 text-muted-foreground font-mono overflow-x-auto text-xs leading-relaxed">
+                                {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+
+                        {/* Timestamp column */}
+                        <div className="text-right text-xs text-muted-foreground shrink-0 font-mono space-y-0.5">
+                          <div className="text-foreground/80">{realTimeStr}</div>
+                          {(daysOverdueNum !== null || simDateText) && (
+                            <div className="text-primary font-medium">
+                              {daysOverdueNum !== null ? `Day ${daysOverdueNum >= 0 ? '+' + daysOverdueNum : daysOverdueNum}` : ''}
+                              {simDateText ? ` (${simDateText})` : ''}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
       </main>
     </div>
   );
 }
-
