@@ -974,9 +974,15 @@ export default function DashboardPage() {
                         {/* Mandate Guard Decision Badge */}
                         <div className="shrink-0 mt-0.5">
                           {isAllowed && (
-                            <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-semibold text-xs">
-                              Allowed
-                            </Badge>
+                            act.details?.sendFailed === true || act.details?.execution === 'FAILED' || (act.details?.executed === false && act.details?.error) ? (
+                              <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-400 font-semibold text-xs">
+                                ALLOWED · SEND FAILED
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-semibold text-xs">
+                                Allowed
+                              </Badge>
+                            )
                           )}
                           {isBlocked && (
                             <Badge variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-400 font-semibold text-xs">
@@ -1015,6 +1021,11 @@ export default function DashboardPage() {
                                 <span>View details</span>
                                 <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
                               </summary>
+                              {act.details?.error && (
+                                <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/20 text-destructive text-xs font-mono">
+                                  Error: {act.details.error}
+                                </div>
+                              )}
                               <pre className="mt-2 p-3 rounded-lg bg-muted/60 border border-border/50 text-muted-foreground font-mono overflow-x-auto text-xs leading-relaxed">
                                 {typeof act.details === 'string' ? act.details : JSON.stringify(act.details, null, 2)}
                               </pre>

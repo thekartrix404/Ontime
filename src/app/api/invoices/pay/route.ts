@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { recordPayment, ensureEnvLoaded } from '@/lib/paypal';
+import {
+  getPaymentProviderForInvoice,
+  getProviderNameForInvoice,
+  ensureEnvLoaded,
+} from '@/lib/paypal';
 import { getSimulatedNow, computeDaysOverdue } from '@/lib/clock';
 
 ensureEnvLoaded();
@@ -29,20 +33,31 @@ export async function POST(req: Request) {
     const simulatedNow = getSimulatedNow();
     const paymentDate = simulatedNow.toISOString().split('T')[0];
 
-    // Call PayPal recordPayment if paypal_invoice_id exists
+    // Must use provider that created the invoice; never silently fall back when PAYPAL_MODE=sandbox
+    const provider = getPaymentProviderForInvoice(invoice);
+    const expectedProvider = getProviderNameForInvoice(invoice);
+
     let paypalPaymentResult: any = null;
+    let providerUsed = expectedProvider;
+
     if (invoice.paypal_invoice_id) {
       try {
-        paypalPaymentResult = await recordPayment(invoice.paypal_invoice_id, {
+        paypalPaymentResult = await provider.recordPayment(invoice.paypal_invoice_id, {
           amount: invoice.amount,
           currency: invoice.currency || 'USD',
           paymentDate,
           method: 'PAYPAL',
           note: 'Marked as paid via OnTime dashboard',
         });
+        providerUsed = paypalPaymentResult?.providerUsed || expectedProvider;
       } catch (err: any) {
         console.error(`[recordPayment] PayPal call error for ${invoiceId}:`, err);
-        // Continue to record locally even if sandbox returned an error
+        if (process.env.PAYPAL_MODE === 'sandbox') {
+          return NextResponse.json(
+            { error: `Failed to record payment in PayPal Sandbox: ${err.message}` },
+            { status: 500 }
+          );
+        }
       }
     }
 
@@ -69,7 +84,9 @@ export async function POST(req: Request) {
     // Record audit row
     const auditId = `audit_pay_${Date.now()}`;
     const clientName = invoice.client_name || invoice.company || 'Client';
-    const providerUsed = paypalPaymentResult?.providerUsed || 'mock';
+    if (paypalPaymentResult?.providerUsed) {
+      providerUsed = paypalPaymentResult.providerUsed;
+    }
     const realTime = new Date().toISOString();
     const simulatedTime = simulatedNow.toISOString();
     const daysOverdue = computeDaysOverdue(invoice.due_date, simulatedNow);

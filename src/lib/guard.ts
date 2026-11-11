@@ -1,6 +1,10 @@
 import { mandate } from './mandate';
 import { getDb } from './db';
-import { remindInvoice, ensureEnvLoaded } from './paypal';
+import {
+  getPaymentProviderForInvoice,
+  getProviderNameForInvoice,
+  ensureEnvLoaded,
+} from './paypal';
 import { computeDaysOverdue, getSimulatedNow } from './clock';
 import { LlmSource } from './llm';
 
@@ -29,6 +33,8 @@ export interface GuardDecision {
   source: LlmSource;
   providerUsed?: 'sandbox' | 'mock';
   executed: boolean;
+  execution?: 'FAILED' | 'SUCCESS';
+  sendFailed?: boolean;
   error?: string;
 }
 
@@ -83,29 +89,64 @@ export async function executeGuardedTool(
       ruleApplied = `Rule 'autoSendTones allowed': tone '${tone}' is permitted for automated sending`;
       approvedBy = 'auto';
 
-      // Execute: send via PayPal
-      try {
-        if (invoiceRow.paypal_invoice_id) {
-          const remindRes = await remindInvoice(invoiceRow.paypal_invoice_id, {
-            subject: args.subject || `Payment Reminder: Invoice ${invoiceNumber}`,
-            note: args.message,
-          });
-          providerUsed = remindRes?.providerUsed || 'sandbox';
+      // 1. PROVIDER MISMATCH: use provider that created the invoice
+      const provider = getPaymentProviderForInvoice(invoiceRow);
+      const expectedProvider = getProviderNameForInvoice(invoiceRow);
+      providerUsed = expectedProvider;
+
+      // 2. STATUS SYNC: before sending a reminder, GET the invoice from PayPal and update DB status
+      let isAlreadyPaid = false;
+      if (invoiceRow.paypal_invoice_id) {
+        try {
+          const remoteInv = await provider.getInvoice(invoiceRow.paypal_invoice_id);
+          const remoteStatus = remoteInv?.status;
+          if (remoteStatus) {
+            db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(remoteStatus, invoiceId);
+            invoiceRow.status = remoteStatus;
+          }
+          if (['PAID', 'MARKED_AS_PAID', 'CANCELLED'].includes(remoteStatus)) {
+            isAlreadyPaid = true;
+          }
+        } catch (syncErr: any) {
+          console.warn(`[Guard] Status sync check error for invoice ${invoiceId}:`, syncErr.message);
         }
-        executed = true;
+      }
 
-        summaryText = `Day ${daysOverdue}: Sent ${tone} reminder to ${clientName} for invoice ${invoiceNumber} ($${amount}) via PayPal [${providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}].`;
+      if (['PAID', 'MARKED_AS_PAID', 'CANCELLED'].includes(invoiceRow.status)) {
+        isAlreadyPaid = true;
+      }
 
-        // Record followup in DB with source
-        db.prepare(`
-          INSERT INTO followups (id, invoice_id, tone, channel, message, status, source, sent_at, created_at)
-          VALUES (?, ?, ?, 'email', ?, 'SENT', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        `).run(generateUniqueId('flw'), invoiceId, tone, args.message, source);
+      if (isAlreadyPaid) {
+        executed = false;
+        summaryText = `Day ${daysOverdue}: skipped: invoice already paid for ${clientName} (${invoiceNumber}). Status: ${invoiceRow.status}.`;
+      } else {
+        // Execute: send via PayPal
+        try {
+          if (invoiceRow.paypal_invoice_id) {
+            const remindRes = await provider.remindInvoice(invoiceRow.paypal_invoice_id, {
+              subject: args.subject || `Payment Reminder: Invoice ${invoiceNumber}`,
+              note: args.message,
+            });
+            providerUsed = remindRes?.providerUsed || expectedProvider;
+          }
+          executed = true;
 
-      } catch (err: any) {
-        executionError = err.message || 'PayPal remind failed';
-        summaryText = `Day ${daysOverdue}: Attempted to send ${tone} reminder to ${clientName} via PayPal, but encountered error: ${executionError}`;
-        console.error(`[Guard] Failed to send PayPal reminder for invoice ${invoiceId}:`, err);
+          summaryText = `Day ${daysOverdue}: Sent ${tone} reminder to ${clientName} for invoice ${invoiceNumber} ($${amount}) via PayPal [${providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}].`;
+
+          // Record followup in DB with source
+          db.prepare(`
+            INSERT INTO followups (id, invoice_id, tone, channel, message, status, source, sent_at, created_at)
+            VALUES (?, ?, ?, 'email', ?, 'SENT', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `).run(generateUniqueId('flw'), invoiceId, tone, args.message, source);
+
+        } catch (err: any) {
+          // 3. FAILED SENDS: record guard decision as "allowed" but execution as FAILED
+          executed = false;
+          executionError = err.message || 'PayPal remind failed';
+          summaryText = `Day ${daysOverdue}: Attempted to send ${tone} reminder to ${clientName} via PayPal, but encountered error: ${executionError}`;
+          console.error(`[Guard] Failed to send PayPal reminder for invoice ${invoiceId}:`, err);
+          // Do NOT mark this stage as handled in followups so it can be retried
+        }
       }
     } else {
       decision = 'blocked';
@@ -198,6 +239,8 @@ export async function executeGuardedTool(
     source,
     providerUsed,
     executed,
+    execution: executionError ? 'FAILED' : (executed ? 'SUCCESS' : undefined),
+    sendFailed: !!executionError,
     error: executionError,
   };
 
@@ -232,7 +275,7 @@ export async function executeGuardedTool(
 export async function approveQueueItem(queueId: string): Promise<any> {
   const db = getDb();
   const item = db.prepare(`
-    SELECT q.*, i.paypal_invoice_id, i.invoice_number, i.amount, i.due_date, c.name as client_name
+    SELECT q.*, i.paypal_invoice_id, i.invoice_number, i.amount, i.due_date, i.status as invoice_status, i.provider, c.name as client_name
     FROM approval_queue q
     JOIN invoices i ON i.id = q.invoice_id
     JOIN clients c ON c.id = i.client_id
@@ -247,15 +290,91 @@ export async function approveQueueItem(queueId: string): Promise<any> {
     throw new Error(`Queue item is already ${item.status}`);
   }
 
-  let providerUsed: 'sandbox' | 'mock' = 'sandbox';
+  const provider = getPaymentProviderForInvoice(item);
+  const providerName = getProviderNameForInvoice(item);
+  let providerUsed: 'sandbox' | 'mock' = providerName;
+
+  // STATUS SYNC: before sending reminder on approval, check PayPal status
+  let isAlreadyPaid = false;
+  if (item.paypal_invoice_id) {
+    try {
+      const remoteInv = await provider.getInvoice(item.paypal_invoice_id);
+      const remoteStatus = remoteInv?.status;
+      if (remoteStatus) {
+        db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(remoteStatus, item.invoice_id);
+        item.invoice_status = remoteStatus;
+      }
+      if (['PAID', 'MARKED_AS_PAID', 'CANCELLED'].includes(remoteStatus)) {
+        isAlreadyPaid = true;
+      }
+    } catch (syncErr: any) {
+      console.warn(`[approveQueueItem] Status sync check error for ${item.invoice_id}:`, syncErr.message);
+    }
+  }
+
+  if (['PAID', 'MARKED_AS_PAID', 'CANCELLED'].includes(item.invoice_status)) {
+    isAlreadyPaid = true;
+  }
+
+  const realTime = new Date().toISOString();
+  const simulatedTime = getSimulatedNow().toISOString();
+  const daysOverdue = item.due_date ? computeDaysOverdue(item.due_date) : 0;
+  const auditId = `audit_appr_${Date.now()}`;
+
+  if (isAlreadyPaid) {
+    db.prepare(`
+      UPDATE approval_queue
+      SET status = 'SKIPPED'
+      WHERE id = ?
+    `).run(queueId);
+
+    const summaryText = `skipped: invoice already paid for ${item.client_name} (${item.invoice_number}). Status: ${item.invoice_status}.`;
+    const details = {
+      timestamp: realTime,
+      realTime,
+      simulatedTime,
+      daysOverdue,
+      tool: item.tool,
+      action: 'USER_APPROVAL',
+      approvedBy: 'user',
+      queueId,
+      invoiceId: item.invoice_id,
+      source: item.source || 'gemini-live',
+      providerUsed,
+      summaryText,
+    };
+
+    db.prepare(`
+      INSERT INTO audit_log (id, action, entity_type, entity_id, details, real_time, simulated_time, days_overdue, created_at)
+      VALUES (?, 'USER_APPROVAL', 'invoice', ?, ?, ?, ?, ?, ?)
+    `).run(
+      auditId,
+      item.invoice_id,
+      JSON.stringify(details),
+      realTime,
+      simulatedTime,
+      daysOverdue,
+      realTime
+    );
+
+    return {
+      success: true,
+      queueId,
+      approvedBy: 'user',
+      providerUsed,
+      status: 'SKIPPED',
+      skipped: true,
+      reason: 'skipped: invoice already paid',
+    };
+  }
 
   // If it's a reminder or escalation, send via PayPal remind
   if (item.paypal_invoice_id) {
-    const remindRes = await remindInvoice(item.paypal_invoice_id, {
+    const remindRes = await provider.remindInvoice(item.paypal_invoice_id, {
       subject: item.subject || `Payment Reminder: ${item.invoice_number}`,
       note: item.message,
     });
-    providerUsed = remindRes?.providerUsed || 'sandbox';
+    providerUsed = remindRes?.providerUsed || providerName;
   }
 
   // Update queue item
@@ -272,12 +391,7 @@ export async function approveQueueItem(queueId: string): Promise<any> {
     WHERE invoice_id = ? AND message = ?
   `).run(item.invoice_id, item.message);
 
-  const realTime = new Date().toISOString();
-  const simulatedTime = getSimulatedNow().toISOString();
-  const daysOverdue = item.due_date ? computeDaysOverdue(item.due_date) : 0;
-
   // Log audit row with approved_by=user and providerUsed
-  const auditId = `audit_appr_${Date.now()}`;
   const details = {
     timestamp: realTime,
     realTime,

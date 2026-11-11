@@ -226,6 +226,11 @@ export default function AuditPage() {
               <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-3 before:bottom-3 before:w-px before:bg-border/60">
                 {logs.map((log) => {
                   const isAllowed = log.badgeType === 'allowed' || log.decision === 'allowed' || log.action === 'GUARD_ALLOWED';
+                  const isSendFailed = isAllowed && Boolean(
+                    log.details?.sendFailed === true ||
+                    log.details?.execution === 'FAILED' ||
+                    (log.details?.executed === false && log.details?.error)
+                  );
                   const isBlocked = log.badgeType === 'blocked' || log.decision === 'blocked' || log.action === 'GUARD_BLOCKED';
                   const isQueued = log.badgeType === 'queued_review' || log.decision === 'queued_review' || log.action === 'GUARD_QUEUED';
                   const isUserAction = !isAllowed && !isBlocked && !isQueued && (log.badgeType === 'user_action' || log.action === 'USER_APPROVAL' || log.action === 'USER_REJECTION' || log.approvedBy === 'user');
@@ -247,7 +252,10 @@ export default function AuditPage() {
                   let NodeIcon = Activity;
                   let nodeColor = 'bg-muted-foreground/30 border-muted-foreground/50 text-muted-foreground';
 
-                  if (isAllowed) {
+                  if (isSendFailed) {
+                    NodeIcon = AlertTriangle;
+                    nodeColor = 'bg-amber-950/80 border-amber-500 text-amber-400';
+                  } else if (isAllowed) {
                     NodeIcon = CheckCircle2;
                     nodeColor = 'bg-emerald-950/80 border-emerald-500 text-emerald-400';
                   } else if (isBlocked) {
@@ -274,11 +282,15 @@ export default function AuditPage() {
                       <div className="bg-card border border-border/60 hover:border-border rounded-xl p-4 shadow-2xs transition-colors flex flex-col sm:flex-row sm:items-start justify-between gap-4 text-xs">
                         <div className="space-y-2 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            {isAllowed && (
+                            {isSendFailed ? (
+                              <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-400 font-semibold text-xs">
+                                ALLOWED · SEND FAILED
+                              </Badge>
+                            ) : isAllowed ? (
                               <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-semibold text-xs">
                                 ALLOWED
                               </Badge>
-                            )}
+                            ) : null}
                             {isBlocked && (
                               <Badge variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-400 font-semibold text-xs">
                                 BLOCKED
@@ -340,6 +352,11 @@ export default function AuditPage() {
                                 <span>View details</span>
                                 <ChevronDown size={12} className="transition-transform group-open/details:rotate-180" />
                               </summary>
+                              {log.details?.error && (
+                                <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/20 text-destructive text-xs font-mono">
+                                  Error: {log.details.error}
+                                </div>
+                              )}
                               <pre className="mt-2 p-3 rounded-lg bg-muted/60 border border-border/50 text-muted-foreground font-mono overflow-x-auto text-xs leading-relaxed">
                                 {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
                               </pre>

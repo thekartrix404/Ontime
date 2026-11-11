@@ -140,11 +140,12 @@ export async function POST(req: NextRequest) {
 
       const payerViewUrl = extractPayerViewUrl(ppInvoice, ppId);
       const localInvoiceId = 'inv_' + crypto.randomUUID().slice(0, 8);
+      const providerUsed = ppInvoice?.providerUsed === 'sandbox' ? 'sandbox' : 'mock';
 
       db.prepare(
         `INSERT INTO invoices
-         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', 'Net-30', ?, ?, CURRENT_TIMESTAMP)`
+         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, provider, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', 'Net-30', ?, ?, ?, CURRENT_TIMESTAMP)`
       ).run(
         localInvoiceId,
         client.id,
@@ -154,7 +155,8 @@ export async function POST(req: NextRequest) {
         todayStr,
         dueDateStr,
         createInput.note,
-        ppId
+        ppId,
+        providerUsed
       );
 
       const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
@@ -239,11 +241,12 @@ export async function POST(req: NextRequest) {
 
       const payerViewUrl = extractPayerViewUrl(ppInvoice, ppId);
       const localId = 'inv_' + crypto.randomUUID().slice(0, 8);
+      const providerUsed = ppInvoice?.providerUsed === 'sandbox' ? 'sandbox' : 'mock';
 
       db.prepare(
         `INSERT INTO invoices
-         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', 'Net-14', ?, ?, CURRENT_TIMESTAMP)`
+         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, provider, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', 'Net-14', ?, ?, ?, CURRENT_TIMESTAMP)`
       ).run(
         localId,
         client.id,
@@ -253,7 +256,8 @@ export async function POST(req: NextRequest) {
         todayStr,
         dueDateStr,
         createInput.note,
-        ppId
+        ppId,
+        providerUsed
       );
 
       const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
@@ -327,11 +331,12 @@ export async function POST(req: NextRequest) {
 
       const payerViewUrl = extractPayerViewUrl(ppInvoice, ppId);
       const localId = 'inv_' + crypto.randomUUID().slice(0, 8);
+      const providerUsed = ppInvoice?.providerUsed === 'sandbox' ? 'sandbox' : 'mock';
 
       db.prepare(
         `INSERT INTO invoices
-         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', 'Net-7 + 2% discount', ?, ?, CURRENT_TIMESTAMP)`
+         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, provider, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', 'Net-7 + 2% discount', ?, ?, ?, CURRENT_TIMESTAMP)`
       ).run(
         localId,
         client.id,
@@ -341,7 +346,8 @@ export async function POST(req: NextRequest) {
         todayStr,
         dueDateStr,
         noteStr,
-        ppId
+        ppId,
+        providerUsed
       );
 
       const providerTag = ` [Provider: ${ppInvoice?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;
@@ -425,11 +431,12 @@ export async function POST(req: NextRequest) {
 
       const depositPayerView = extractPayerViewUrl(ppDeposit, ppDepositId);
       const localDepositId = 'inv_' + crypto.randomUUID().slice(0, 8);
+      const depositProviderUsed = ppDeposit?.providerUsed === 'sandbox' ? 'sandbox' : 'mock';
 
       db.prepare(
         `INSERT INTO invoices
-         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, project_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', '40% Deposit', ?, ?, ?, CURRENT_TIMESTAMP)`
+         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, project_id, provider, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'SENT', '40% Deposit', ?, ?, ?, ?, CURRENT_TIMESTAMP)`
       ).run(
         localDepositId,
         client.id,
@@ -440,7 +447,8 @@ export async function POST(req: NextRequest) {
         todayStr,
         depositInput.note,
         ppDepositId,
-        projectId
+        projectId,
+        depositProviderUsed
       );
 
       // 2. Final Balance Invoice (60%) - KEEP AS DRAFT!
@@ -476,11 +484,12 @@ export async function POST(req: NextRequest) {
       const ppDeliveryId = ppDelivery.id;
       const deliveryPayerView = extractPayerViewUrl(ppDelivery, ppDeliveryId);
       const localDeliveryId = 'inv_' + crypto.randomUUID().slice(0, 8);
+      const deliveryProviderUsed = ppDelivery?.providerUsed === 'sandbox' ? 'sandbox' : 'mock';
 
       db.prepare(
         `INSERT INTO invoices
-         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, project_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', '60% on Delivery', ?, ?, ?, CURRENT_TIMESTAMP)`
+         (id, client_id, invoice_number, amount, currency, issue_date, due_date, status, terms, notes, paypal_invoice_id, project_id, provider, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', '60% on Delivery', ?, ?, ?, ?, CURRENT_TIMESTAMP)`
       ).run(
         localDeliveryId,
         client.id,
@@ -491,7 +500,8 @@ export async function POST(req: NextRequest) {
         todayStr,
         deliveryInput.note,
         ppDeliveryId,
-        projectId
+        projectId,
+        deliveryProviderUsed
       );
 
       const providerTag = ` [Provider: ${ppDeposit?.providerUsed === 'sandbox' ? 'PayPal Sandbox' : 'MockPayPal provider'}]`;

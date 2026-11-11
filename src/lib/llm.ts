@@ -362,14 +362,14 @@ async function callGeminiWithRetry(
     return { text: cached, source: 'cache', fromCache: true };
   }
 
-  // 3. Try primary model with 25s timeout
+  // 3. Try primary model with 60s timeout
   let response: any;
   try {
-    response = await callWithTimeout(modelToUse, prompt, config, 25000);
+    response = await callWithTimeout(modelToUse, prompt, config, 60000);
   } catch (err: any) {
-    // If primary hangs or errors, try fallback with 25s timeout
+    // If primary hangs or errors, try fallback with 60s timeout
     try {
-      response = await callWithTimeout(FALLBACK_MODEL, prompt, config, 25000);
+      response = await callWithTimeout(FALLBACK_MODEL, prompt, config, 60000);
     } catch (fallbackErr: any) {
       // LLM_MODE is not "mock" and Gemini failed -> use "rule-fallback" templates
       const fb = generateRuleFallbackContent(prompt, config, fallbackErr?.message || err?.message);
@@ -586,7 +586,7 @@ export async function callGeminiWithTools(
   const config: Record<string, any> = {
     tools: [{ functionDeclarations: tools }],
     thinkingConfig: {
-      thinkingLevel: ThinkingLevel.MEDIUM,
+      thinkingLevel: ThinkingLevel.LOW,
     },
   };
   if (systemInstruction) {
@@ -611,9 +611,34 @@ export async function callGeminiWithTools(
     }
   }
 
-  // 3. Call Gemini
+  // 3. Call Gemini with 60s timeout, retry once, and latency logging
+  let rawRes: any;
+  const startTotal = Date.now();
+  let firstErr: any = null;
+
   try {
-    const rawRes = await callWithTimeout(modelToUse, prompt, config, 25000);
+    const t0 = Date.now();
+    rawRes = await callWithTimeout(modelToUse, prompt, config, 60000);
+    const latency = Date.now() - t0;
+    console.log(`[Gemini Agent] Call succeeded in ${latency}ms`);
+  } catch (err: any) {
+    firstErr = err;
+    const latency1 = Date.now() - startTotal;
+    console.warn(`[Gemini Agent] Call attempt 1 failed in ${latency1}ms: ${err?.message || err}. Retrying once...`);
+    try {
+      const t1 = Date.now();
+      rawRes = await callWithTimeout(modelToUse, prompt, config, 60000);
+      const retryLatency = Date.now() - t1;
+      console.log(`[Gemini Agent] Retry succeeded in ${retryLatency}ms (total: ${Date.now() - startTotal}ms)`);
+      firstErr = null;
+    } catch (retryErr: any) {
+      const totalTime = Date.now() - startTotal;
+      console.error(`[Gemini Agent] Retry failed (total time ${totalTime}ms): ${retryErr?.message || retryErr}`);
+      return getDeterministicToolCall(`Gemini API error after retry (${retryErr?.message || err?.message || 'unknown error'})`, 'rule-fallback');
+    }
+  }
+
+  if (rawRes) {
     const functionCalls: ToolCallResult[] = [];
 
     if (rawRes.functionCalls && Array.isArray(rawRes.functionCalls)) {
@@ -633,9 +658,9 @@ export async function callGeminiWithTools(
 
     // If Gemini returned without calling any tools, fallback to deterministic
     return getDeterministicToolCall('no tool call returned from Gemini', 'rule-fallback');
-  } catch (err: any) {
-    return getDeterministicToolCall(`Gemini API error (${err.message || 'unknown error'})`, 'rule-fallback');
   }
+
+  return getDeterministicToolCall(`Gemini API error (${firstErr?.message || 'unknown error'})`, 'rule-fallback');
 }
 
 

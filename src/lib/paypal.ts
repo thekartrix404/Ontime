@@ -483,8 +483,28 @@ export class MockPayPalProvider implements PaymentProvider {
   }
 
   async getInvoice(invoiceId: string): Promise<any> {
-    const invoice = this.invoices.get(invoiceId);
-    if (!invoice) throw new Error(`Invoice not found: ${invoiceId}`);
+    let invoice = this.invoices.get(invoiceId);
+    if (!invoice) {
+      try {
+        const { getDb } = require('./db');
+        const db = getDb();
+        const row = db.prepare('SELECT * FROM invoices WHERE paypal_invoice_id = ? OR id = ?').get(invoiceId, invoiceId) as any;
+        if (row) {
+          invoice = {
+            id: row.paypal_invoice_id || invoiceId,
+            status: row.status,
+            amount: { value: row.amount, currency_code: row.currency || 'USD' },
+            providerUsed: 'mock',
+          };
+          this.invoices.set(invoiceId, invoice);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (!invoice) {
+      return { id: invoiceId, status: 'SENT', providerUsed: 'mock' };
+    }
     return { ...invoice, providerUsed: 'mock' };
   }
 
@@ -495,7 +515,11 @@ export class MockPayPalProvider implements PaymentProvider {
 
   async recordPayment(invoiceId: string, input: RecordPaymentInput): Promise<any> {
     const invoice = this.invoices.get(invoiceId);
-    if (invoice) invoice.status = 'PAID';
+    if (invoice) {
+      invoice.status = 'PAID';
+    } else {
+      this.invoices.set(invoiceId, { id: invoiceId, status: 'PAID', providerUsed: 'mock' });
+    }
     return { payment_id: `MOCK-PAY-${Date.now()}`, providerUsed: 'mock' };
   }
 }
@@ -509,7 +533,17 @@ export class FallbackPaymentProvider implements PaymentProvider {
     this.fallback = new MockPayPalProvider();
   }
 
+  private canFallback(): boolean {
+    ensureEnvLoaded();
+    // When PAYPAL_MODE=sandbox, never silently fall back to MockPayPal; show an error instead.
+    if (process.env.PAYPAL_MODE === 'sandbox') {
+      return false;
+    }
+    return true;
+  }
+
   private isNetworkError(err: any): boolean {
+    if (!this.canFallback()) return false;
     const msg = (err?.message || '').toLowerCase();
     const code = err?.cause?.code || err?.code;
     return msg.includes('fetch failed') || code === 'ENOTFOUND' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT';
@@ -593,18 +627,43 @@ export class FallbackPaymentProvider implements PaymentProvider {
   }
 }
 
+// Shared provider instances
+let sharedMockProvider: MockPayPalProvider | null = null;
+let sharedSandboxProvider: SandboxPayPalProvider | null = null;
+
+export function getMockPayPalProvider(): MockPayPalProvider {
+  if (!sharedMockProvider) {
+    sharedMockProvider = new MockPayPalProvider();
+  }
+  return sharedMockProvider;
+}
+
+export function getSandboxPayPalProvider(): SandboxPayPalProvider {
+  if (!sharedSandboxProvider) {
+    sharedSandboxProvider = new SandboxPayPalProvider();
+  }
+  return sharedSandboxProvider;
+}
+
 // Active provider instance (defaults to Sandbox if credentials present with Mock fallback)
 let activeProvider: PaymentProvider | null = null;
 
 export function getPaymentProvider(): PaymentProvider {
   if (!activeProvider) {
     ensureEnvLoaded();
-    if (process.env.PAYPAL_MODE === 'mock') {
-      activeProvider = new MockPayPalProvider();
+    if (process.env.PAYPAL_MODE === 'sandbox') {
+      const clientId = process.env.PAYPAL_CLIENT_ID;
+      const secret = process.env.PAYPAL_SECRET;
+      if (!clientId || !secret) {
+        throw new Error('PayPal credentials missing: PAYPAL_CLIENT_ID and PAYPAL_SECRET must be set when PAYPAL_MODE=sandbox');
+      }
+      activeProvider = getSandboxPayPalProvider();
+    } else if (process.env.PAYPAL_MODE === 'mock') {
+      activeProvider = getMockPayPalProvider();
     } else if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_SECRET) {
       activeProvider = new FallbackPaymentProvider();
     } else {
-      activeProvider = new MockPayPalProvider();
+      activeProvider = getMockPayPalProvider();
     }
   }
   return activeProvider;
@@ -612,6 +671,37 @@ export function getPaymentProvider(): PaymentProvider {
 
 export function setPaymentProvider(provider: PaymentProvider) {
   activeProvider = provider;
+}
+
+/**
+ * Returns 'sandbox' or 'mock' depending on how the invoice was originally created.
+ */
+export function getProviderNameForInvoice(invoice: { provider?: string | null; paypal_invoice_id?: string | null }): 'sandbox' | 'mock' {
+  if (invoice.provider === 'sandbox' || invoice.provider === 'mock') {
+    return invoice.provider;
+  }
+  if (invoice.paypal_invoice_id && (invoice.paypal_invoice_id.startsWith('MOCK-') || invoice.paypal_invoice_id.startsWith('mock_'))) {
+    return 'mock';
+  }
+  return 'sandbox';
+}
+
+/**
+ * Resolves the payment provider that created the invoice.
+ * When PAYPAL_MODE=sandbox, never silently falls back to MockPayPal; throws an error instead.
+ */
+export function getPaymentProviderForInvoice(invoice: { provider?: string | null; paypal_invoice_id?: string | null; invoice_number?: string }): PaymentProvider {
+  ensureEnvLoaded();
+  const providerName = getProviderNameForInvoice(invoice);
+
+  if (process.env.PAYPAL_MODE === 'sandbox' && providerName === 'mock') {
+    throw new Error(`Provider mismatch: Invoice ${invoice.invoice_number || invoice.paypal_invoice_id || ''} was created by MockPayPal, but PAYPAL_MODE=sandbox. Cannot fall back to MockPayPal.`);
+  }
+
+  if (providerName === 'sandbox') {
+    return getSandboxPayPalProvider();
+  }
+  return getMockPayPalProvider();
 }
 
 // Direct function exports as requested in requirements

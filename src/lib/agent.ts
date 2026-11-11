@@ -100,7 +100,7 @@ function isStageAlreadyHandled(invoiceId: string, stage: string): boolean {
   const followupCount = (db.prepare(`
     SELECT COUNT(*) as count
     FROM followups
-    WHERE invoice_id = ? AND LOWER(tone) = ?
+    WHERE invoice_id = ? AND LOWER(tone) = ? AND status != 'FAILED'
   `).get(invoiceId, stage.toLowerCase()) as { count: number }).count;
 
   if (followupCount > 0) return true;

@@ -7,6 +7,7 @@ import { ensureEnvLoaded, getPaymentProvider } from '../src/lib/paypal';
 const isLive = process.argv.includes('--live');
 if (!isLive) {
   process.env.LLM_MODE = 'mock';
+  process.env.PAYPAL_MODE = 'mock';
 } else {
   delete process.env.LLM_MODE;
 }
